@@ -39,7 +39,7 @@ $(BUILD_DIR)/%.o: %
 $(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift
 	@mkdir -p $(@D)
 	$(SWIFTC) -O -whole-module-optimization -target $*-apple-macosx11.0 \
-		-framework AppKit -framework Foundation $< -o $@
+		-framework AppKit -framework Foundation -framework SwiftUI $< -o $@
 
 $(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) StatusApp/Info.plist
 	@mkdir -p "$(STATUS_APP)/Contents/MacOS"

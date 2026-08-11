@@ -2,6 +2,7 @@
 import AppKit
 import Darwin
 import Foundation
+import SwiftUI
 
 private let horndisStatusVersion = "0.2.1"
 private let statusPath = "/var/run/horndis/status.json"
@@ -318,10 +319,73 @@ private class HighlightableMenuRowView: NSView {
 }
 
 @MainActor
-private final class MenuSwitchRowView: HighlightableMenuRowView {
-    let toggle: NSSwitch
+private final class MenuToggleModel: NSObject, ObservableObject {
+    @Published var isOn: Bool
+    @Published var isEnabled: Bool
+    private weak var actionTarget: AnyObject?
+    private let actionSelector: Selector
+
+    init(isOn: Bool, isEnabled: Bool, target: AnyObject, action: Selector) {
+        self.isOn = isOn
+        self.isEnabled = isEnabled
+        actionTarget = target
+        actionSelector = action
+    }
+
+    func setFromUser(_ newValue: Bool) {
+        guard isEnabled else {
+            return
+        }
+        isOn = newValue
+        NSApp.sendAction(actionSelector, to: actionTarget, from: self)
+    }
+
+    func update(isOn: Bool, isEnabled: Bool) {
+        if self.isOn != isOn {
+            withAnimation {
+                self.isOn = isOn
+            }
+        }
+        if self.isEnabled != isEnabled {
+            self.isEnabled = isEnabled
+        }
+    }
+}
+
+@MainActor
+private struct MenuSwitchControl: View {
+    @ObservedObject var model: MenuToggleModel
+    let accessibilityTitle: String
+
+    private var toggle: some View {
+        Toggle(accessibilityTitle,
+               isOn: Binding(get: { model.isOn },
+                             set: { model.setFromUser($0) }))
+            .labelsHidden()
+            .controlSize(.small)
+            .disabled(!model.isEnabled)
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 12.0, *) {
+            toggle
+                .toggleStyle(.switch)
+                .tint(Color(nsColor: .controlAccentColor))
+        } else {
+            toggle
+                .toggleStyle(SwitchToggleStyle(tint: Color(NSColor.controlAccentColor)))
+        }
+    }
+}
+
+@MainActor
+private final class MenuSwitchRowView: NSView {
+    let model: MenuToggleModel
     private let iconView: NSImageView
     private let titleLabel: NSTextField
+    private let hostingView: NSHostingView<MenuSwitchControl>
 
     init(title: String,
          image: NSImage?,
@@ -329,12 +393,19 @@ private final class MenuSwitchRowView: HighlightableMenuRowView {
          isEnabled: Bool,
          target: AnyObject,
          action: Selector) {
-        toggle = NSSwitch()
+        model = MenuToggleModel(isOn: state == .on,
+                                isEnabled: isEnabled,
+                                target: target,
+                                action: action)
         iconView = NSImageView()
         titleLabel = NSTextField(labelWithString: title)
-        super.init()
+        hostingView = NSHostingView(rootView: MenuSwitchControl(model: model,
+                                                                accessibilityTitle: title))
+        super.init(frame: NSRect(x: 0,
+                                 y: 0,
+                                 width: MenuMetrics.width,
+                                 height: MenuMetrics.rowHeight))
 
-        allowsHighlight = isEnabled
         iconView.image = image
         iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
         iconView.frame = NSRect(x: MenuMetrics.horizontalInset,
@@ -354,18 +425,15 @@ private final class MenuSwitchRowView: HighlightableMenuRowView {
         titleLabel.autoresizingMask = [.width]
         addSubview(titleLabel)
 
-        toggle.controlSize = .regular
-        toggle.state = state
-        toggle.isEnabled = isEnabled
-        toggle.target = target
-        toggle.action = action
-        toggle.sizeToFit()
-        toggle.frame.origin = NSPoint(
-            x: frame.width - MenuMetrics.horizontalInset - toggle.frame.width,
-            y: floor((MenuMetrics.rowHeight - toggle.frame.height) / 2)
+        let controlSize = hostingView.fittingSize
+        hostingView.frame = NSRect(
+            x: frame.width - MenuMetrics.horizontalInset - controlSize.width,
+            y: floor((MenuMetrics.rowHeight - controlSize.height) / 2),
+            width: controlSize.width,
+            height: controlSize.height
         )
-        toggle.autoresizingMask = [.minXMargin]
-        addSubview(toggle)
+        hostingView.autoresizingMask = [.minXMargin]
+        addSubview(hostingView)
 
         setAccessibilityRole(.checkBox)
         setAccessibilityLabel(title)
@@ -376,33 +444,15 @@ private final class MenuSwitchRowView: HighlightableMenuRowView {
     }
 
     func update(state: NSControl.StateValue, isEnabled: Bool) {
-        let stateChanged = toggle.state != state
-        let enabledChanged = toggle.isEnabled != isEnabled
-        if stateChanged {
-            toggle.animator().state = state
-        }
-        if enabledChanged {
-            toggle.isEnabled = isEnabled
-            allowsHighlight = isEnabled
-        }
-        if stateChanged || enabledChanged {
-            hoverStateDidChange(enclosingMenuItem?.isHighlighted == true)
-            needsDisplay = true
-        }
-    }
-
-    override func hoverStateDidChange(_ highlighted: Bool) {
-        let color: NSColor = highlighted
-            ? .selectedMenuItemTextColor
-            : (toggle.isEnabled ? .labelColor : .disabledControlTextColor)
-        iconView.contentTintColor = color
-        titleLabel.textColor = color
+        model.update(isOn: state == .on, isEnabled: isEnabled)
+        iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
+        titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
     }
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if toggle.isEnabled && bounds.contains(point) && !toggle.frame.contains(point) {
-            toggle.performClick(self)
+        if model.isEnabled && bounds.contains(point) && !hostingView.frame.contains(point) {
+            model.setFromUser(!model.isOn)
         }
     }
 }
@@ -776,7 +826,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         connectionRowView = row
 
         item.view = row
-        item.toolTip = row.toggle.isEnabled
+        item.toolTip = row.model.isEnabled
             ? nil
             : localized("Install or upgrade the background service first",
                         "请先安装或升级后台服务")
@@ -883,8 +933,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         }
     }
 
-    @objc private func setConnection(_ sender: NSSwitch) {
-        let requestedState = sender.state == .on
+    @objc private func setConnection(_ sender: MenuToggleModel) {
+        let requestedState = sender.isOn
         pendingConnectionState = requestedState
         pendingConnectionStartedAt = Date()
         updateStatusItem()
@@ -895,7 +945,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             interfaceError = error.localizedDescription
             pendingConnectionState = nil
             pendingConnectionStartedAt = nil
-            sender.state = requestedState ? .off : .on
+            sender.update(isOn: !requestedState, isEnabled: sender.isEnabled)
             updateStatusItem()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -930,8 +980,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         NSWorkspace.shared.open(URL(fileURLWithPath: "/var/log/horndis.log"))
     }
 
-    @objc private func setLaunchAtLogin(_ sender: NSSwitch) {
-        let shouldInstall = sender.state == .on
+    @objc private func setLaunchAtLogin(_ sender: MenuToggleModel) {
+        let shouldInstall = sender.isOn
         do {
             if shouldInstall {
                 try LaunchAgentManager.writeConfiguration()
@@ -941,7 +991,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             interfaceError = nil
         } catch {
             interfaceError = error.localizedDescription
-            sender.state = shouldInstall ? .off : .on
+            sender.update(isOn: !shouldInstall, isEnabled: sender.isEnabled)
         }
     }
 
