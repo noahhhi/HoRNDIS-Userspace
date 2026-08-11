@@ -35,14 +35,14 @@ The runtime directory is assigned to the current console user after privileged s
 
 ## Installation lifecycle
 
-`sudo horndis service install` performs the only privileged installation step:
+`horndis-install` delegates exactly one operation to `sudo horndis service install`; the GitHub Release package performs the same operation inside the administrator-authorized Installer process. That privileged step:
 
 1. copy the exact executable to `/Library/PrivilegedHelperTools/io.github.noahhhi.horndis`;
 2. set root ownership and non-writable executable permissions;
 3. install the root-owned LaunchDaemon plist;
 4. bootstrap the service.
 
-The password is handled by `sudo`; HoRNDIS never reads or stores it. The LaunchDaemon supplies persistence, so storing credentials in a script, Skill, Keychain lookup, environment variable, or sudoers exception is unnecessary.
+The Homebrew command-line path's password is handled by `sudo`, while the package path uses macOS Installer authorization. The menu app provides a third entry point: it verifies that the helper and LaunchDaemon plist are root-owned, non-writable by ordinary users, and structurally valid; when they are not, **Authorize and Install…** asks the macOS Security Agent to run only the fixed bundled `horndis service install` command. HoRNDIS never reads or stores a credential in any path. The LaunchDaemon supplies persistence, so storing credentials in a script, Skill, Keychain lookup, environment variable, or sudoers exception is unnecessary. The menu LaunchAgent runs as the console user and needs no additional authorization.
 
 ## Remaining risk
 

@@ -1,7 +1,7 @@
 PREFIX ?= /usr/local
 DESTDIR ?=
 BUILD_DIR ?= build
-VERSION ?= 0.2.0
+VERSION ?= 0.2.1
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -21,6 +21,11 @@ TARGET := $(BUILD_DIR)/horndis
 STATUS_TARGET := $(BUILD_DIR)/horndis-status
 STATUS_APP := $(BUILD_DIR)/HoRNDISStatus.app
 STATUS_APP_BINARY := $(STATUS_APP)/Contents/MacOS/horndis-status
+STATUS_APP_ICON := $(STATUS_APP)/Contents/Resources/HoRNDISStatus.icns
+STATUS_APP_NETWORK_TOOL := $(STATUS_APP)/Contents/Resources/horndis
+STATUS_ICON_GENERATOR := $(BUILD_DIR)/generate-horndis-icon
+STATUS_ICONSET := $(BUILD_DIR)/HoRNDISStatus.iconset
+STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
 STATUS_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-status-,$(STATUS_ARCHS))
 TEST_TARGET := $(BUILD_DIR)/rndis-protocol-tests
 
@@ -38,12 +43,26 @@ $(BUILD_DIR)/%.o: %
 
 $(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift
 	@mkdir -p $(@D)
-	$(SWIFTC) -O -whole-module-optimization -target $*-apple-macosx11.0 \
-		-framework AppKit -framework Foundation $< -o $@
+	$(SWIFTC) -parse-as-library -O -whole-module-optimization -target $*-apple-macosx11.0 \
+		-framework AppKit -framework Foundation -framework SwiftUI $< -o $@
 
-$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) StatusApp/Info.plist
-	@mkdir -p "$(STATUS_APP)/Contents/MacOS"
+$(STATUS_ICON_GENERATOR): StatusApp/GenerateAppIcon.swift
+	@mkdir -p $(@D)
+	$(SWIFTC) -O -framework AppKit -framework Foundation $< -o $@
+
+$(STATUS_ICON): $(STATUS_ICON_GENERATOR)
+	@mkdir -p "$(STATUS_ICONSET)"
+	$(STATUS_ICON_GENERATOR) "$(STATUS_ICONSET)"
+	iconutil -c icns -o "$@" "$(STATUS_ICONSET)"
+
+$(STATUS_APP_NETWORK_TOOL): $(TARGET)
+	@mkdir -p "$(STATUS_APP)/Contents/Resources"
+	install -m 0755 "$<" "$@"
+
+$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(STATUS_ICON) $(STATUS_APP_NETWORK_TOOL) StatusApp/Info.plist
+	@mkdir -p "$(STATUS_APP)/Contents/MacOS" "$(STATUS_APP)/Contents/Resources"
 	install -m 0644 StatusApp/Info.plist "$(STATUS_APP)/Contents/Info.plist"
+	install -m 0644 "$(STATUS_ICON)" "$(STATUS_APP_ICON)"
 	xcrun lipo -create $(STATUS_ARCH_TARGETS) -output "$@"
 
 $(STATUS_TARGET): $(STATUS_APP_BINARY)
@@ -56,11 +75,14 @@ $(TEST_TARGET): Tests/RNDISProtocolTests.cpp Sources/RNDISProtocol.cpp Sources/R
 test: $(TEST_TARGET) $(STATUS_TARGET)
 	$(TEST_TARGET)
 	$(STATUS_TARGET) --version
+	test -x "$(STATUS_APP_NETWORK_TOOL)"
+	cmp -s "$(TARGET)" "$(STATUS_APP_NETWORK_TOOL)"
 
 install: $(TARGET) $(STATUS_TARGET)
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 0755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/horndis
-	cp -R "$(STATUS_APP)" "$(DESTDIR)$(PREFIX)/HoRNDISStatus.app"
+	install -m 0755 Scripts/horndis-install $(DESTDIR)$(PREFIX)/bin/horndis-install
+	cp -R -X "$(STATUS_APP)" "$(DESTDIR)$(PREFIX)/HoRNDISStatus.app"
 	ln -sfn "../HoRNDISStatus.app/Contents/MacOS/horndis-status" \
 		$(DESTDIR)$(PREFIX)/bin/horndis-status
 
