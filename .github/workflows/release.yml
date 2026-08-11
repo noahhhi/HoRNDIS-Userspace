@@ -29,12 +29,18 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist/horndis
-          cp build/horndis README.md LICENSE dist/horndis/
+          cp build/horndis Scripts/horndis-install README.md LICENSE dist/horndis/
           cp -R build/HoRNDISStatus.app dist/horndis/
+          ln -s "HoRNDISStatus.app/Contents/MacOS/horndis-status" dist/horndis/horndis-status
           cp -R docs dist/horndis/
           ditto -c -k --keepParent dist/horndis "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip"
+
+          Scripts/build-package "${GITHUB_REF_NAME#v}" \
+            "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg"
+
           shasum -a 256 "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip" > "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip.sha256"
+          shasum -a 256 "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg" > "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg.sha256"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.sha256 --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/*.pkg dist/*.zip dist/*.sha256 --generate-notes

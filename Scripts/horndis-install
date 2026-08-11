@@ -1,0 +1,18 @@
+#!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+
+command_directory=${0:a:h}
+network_tool="${command_directory}/horndis"
+status_tool="${command_directory}/horndis-status"
+
+if [[ ! -x "${network_tool}" || ! -x "${status_tool}" ]]; then
+    print -u2 "HoRNDIS installation files are incomplete in ${command_directory}."
+    exit 1
+fi
+
+print "Installing the HoRNDIS network service (administrator authorization is required once)…"
+/usr/bin/sudo "${network_tool}" service install
+"${status_tool}" install
+
+print "HoRNDIS networking and the menu bar app are installed and running."

@@ -12,12 +12,12 @@ No paid Apple Developer account, DriverKit entitlement, reduced-security boot mo
 ## Install
 
 ```sh
-brew install noahhhi/tap/horndis
-sudo horndis service install
-horndis-status install
+brew install noahhhi/tap/horndis && horndis-install
 ```
 
-The second command copies the network daemon to `/Library/PrivilegedHelperTools` and starts its LaunchDaemon. The third command installs the optional per-user menu bar LaunchAgent and never needs administrator authorization.
+The Homebrew Formula installs both the network binary and menu bar app. `horndis-install` asks for administrator authorization once, copies the network daemon to `/Library/PrivilegedHelperTools`, starts its LaunchDaemon, and installs the current user's menu bar LaunchAgent. The password is handled only by macOS `sudo` and is never stored.
+
+The universal `.pkg` attached to GitHub Releases is a one-package alternative. Opening it installs and activates both components with one Installer authorization. The package is not notarized because this personal project has no paid Developer ID, so macOS may require **Open Anyway** in Privacy & Security; the Homebrew source build is preferred.
 
 Enable **USB tethering** in Android settings. The service will discover the RNDIS interfaces automatically while leaving a separate ADB interface available.
 
@@ -55,8 +55,7 @@ The Network settings panel does not list `feth99`. It is a dynamically cloned Et
 ```sh
 brew update
 brew upgrade horndis
-sudo horndis service install
-horndis-status install
+horndis-install
 ```
 
 Only reinstalling the privileged service requires administrator authorization. Normal boot, reconnect, menu-bar use, and login startup are silent. The resident root process is a minimal supervisor; USB and RNDIS processing runs under the current console user. See [Privilege model](PRIVILEGE_MODEL.md).

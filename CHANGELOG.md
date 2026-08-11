@@ -8,6 +8,8 @@
 - Refresh traffic, duration, and connection controls every second while the menu is open.
 - Restored the native system switch appearance while retaining the selected accent color.
 - Preserve stable Homebrew executable symlinks in the login LaunchAgent across upgrades.
+- Added a complete macOS application icon and sealed it into the status app bundle.
+- Added one-command Homebrew activation and a unified GitHub Release installer package.
 
 ## 0.2.0 - 2026-08-11
 

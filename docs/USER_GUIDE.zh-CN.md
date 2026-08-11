@@ -12,12 +12,12 @@
 ## 安装
 
 ```sh
-brew install noahhhi/tap/horndis
-sudo horndis service install
-horndis-status install
+brew install noahhhi/tap/horndis && horndis-install
 ```
 
-第二条命令把网络服务安装到 `/Library/PrivilegedHelperTools` 并启动 LaunchDaemon。第三条命令安装可选的当前用户菜单栏 LaunchAgent，不使用 `sudo`。
+Homebrew Formula 会同时安装网络程序和菜单栏 App。`horndis-install` 只请求一次管理员认证，把网络服务复制到 `/Library/PrivilegedHelperTools`、启动 LaunchDaemon，并为当前用户安装菜单栏 LaunchAgent。密码只由 macOS `sudo` 处理，程序不会保存密码。
+
+GitHub Releases 中的通用 `.pkg` 是另一种一体化安装方式；双击后只需一次 Installer 管理员认证即可安装并启动两部分。由于免费开发者账户无法提供 Developer ID 公证，macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”；因此仍优先推荐 Homebrew 源码安装。
 
 在 Android 设置中打开 **USB 网络共享**。服务会自动发现 RNDIS 接口；如果手机还提供独立的 ADB 接口，ADB 可以同时使用。
 
@@ -56,8 +56,7 @@ tail -f /var/log/horndis.log
 ```sh
 brew update
 brew upgrade horndis
-sudo horndis service install
-horndis-status install
+horndis-install
 ```
 
 只有重新安装后台网络服务需要管理员认证。开机启动、USB 重连和菜单栏操作都不会再次询问密码。常驻 root 进程只是最小监督器，USB 与 RNDIS 数据处理在当前登录用户权限下运行，详见[权限模型](PRIVILEGE_MODEL.md)。

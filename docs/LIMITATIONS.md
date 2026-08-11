@@ -3,8 +3,8 @@
 ## Platform and distribution
 
 - macOS 11 is the minimum deployment target. The current end-to-end reference machine is Apple Silicon on macOS 27; older macOS and Intel builds are produced and compile-checked but cannot all be hardware-tested for every release.
-- Homebrew builds native binaries for the installing Mac. GitHub release archives contain universal arm64/x86_64 binaries.
-- This personal project is not notarized. Homebrew source installation is preferred. It does not require a paid developer account on the user's Mac.
+- Homebrew builds native binaries for the installing Mac and carries both the network service and menu bar app. Homebrew does not elevate privileges during Formula installation; the explicit `horndis-install` command performs the one-time authorized activation.
+- GitHub Releases contain a universal arm64/x86_64 ZIP and a unified `.pkg`. This personal project cannot sign and notarize the package without a paid Developer ID, so Homebrew source installation is preferred.
 
 ## USB protocols and devices
 
@@ -29,6 +29,6 @@
 
 - Details use a native submenu rather than in-place expansion because Apple does not support resizing a custom menu-item view during menu tracking. This preserves the system's open/close animation and highlight behavior; see [Views in Menu Items](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MenuList/Articles/ViewsInMenuItems.html).
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
-- Status refreshes every two seconds, so very short state transitions may not be visible.
+- Status refreshes every two seconds while the menu is closed and every second while it is visible, so very short transitions can still be missed.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.
 - Quitting or crashing the menu bar process does not stop tethering. Conversely, the status UI cannot repair a stopped or uninstalled privileged service without the normal one-time administrator-authorized installation.

@@ -13,12 +13,12 @@ Current reference test: Apple Silicon Mac running macOS 27.0, Pixel 4 XL running
 The recommended installation builds locally from source, so it needs neither a paid Apple Developer account nor a notarized download:
 
 ```sh
-brew install noahhhi/tap/horndis
-sudo horndis service install
-horndis-status install
+brew install noahhhi/tap/horndis && horndis-install
 ```
 
-The last command starts the optional lightweight Swift/AppKit menu bar status app and enables it at login. It does not use `sudo`. The Homebrew formula builds and installs native code for the current Mac; release downloads contain both Apple Silicon and Intel slices.
+The Formula carries both the network service and the lightweight SwiftUI/AppKit menu bar app. Homebrew itself stays unprivileged; `horndis-install` then requests administrator authorization once, installs the fixed root service, starts the per-user menu app, and enables it at login. It never stores the administrator credential.
+
+Alternatively, download the universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) and open it. The package contains and activates both components with one Installer authorization. This personal project cannot notarize downloads without a paid Developer ID, so macOS may require an explicit **Open Anyway** confirmation in Privacy & Security. Homebrew source installation remains the preferred path.
 
 Enable **USB tethering** on Android, then verify:
 
@@ -41,7 +41,7 @@ brew uninstall horndis
 brew untap noahhhi/tap
 ```
 
-Universal command-line builds are also attached to [GitHub releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases). Homebrew source builds are preferred because this personal project cannot currently provide Apple notarization.
+Universal manual ZIP archives are also attached to GitHub Releases for advanced use.
 
 ## Why this exists
 
@@ -66,7 +66,7 @@ unprivileged data agent
              ↕
   read-only status + local control socket
              ↕
-     Swift/AppKit menu bar status
+   SwiftUI/AppKit menu bar status
 ```
 
 - `IOUSBHost` claims only the RNDIS control and data interfaces. ADB stays on its separate USB interface.
@@ -82,6 +82,7 @@ Administrator authorization is required only to install or upgrade the root-owne
 ## Commands
 
 ```text
+horndis-install               authorize once and install/start both components
 horndis probe                 list RNDIS/CDC USB networking functions
 horndis usb-test              initialize RNDIS without creating a network interface
 sudo horndis run              run in the foreground
@@ -131,8 +132,7 @@ RNDIS currently supports Android gadget layouts `e0/01/03`, `02/02/ff`, and `ef/
 
 - `cannot claim ... interface`: stop another RNDIS driver or application that owns interfaces 0/1. ADB on interface 2 is compatible.
 - No address on `feth99`: turn USB tethering off and on, then inspect `/var/log/horndis.log`.
-- Service changes after an upgrade: rerun `sudo horndis service install` to copy the new binary into the privileged helper location.
-- Menu bar changes after an upgrade: rerun `horndis-status install`; this is unprivileged and refreshes its LaunchAgent path.
+- After a Homebrew upgrade, rerun `horndis-install` to update the privileged helper and refresh the menu LaunchAgent in one operation.
 - To keep Wi-Fi active while testing the phone path, bind the socket with `ping -b feth99 8.8.8.8`.
 - Android VPN apps normally do not share their tunnel through native USB tethering. If the phone's underlying Wi-Fi cannot access a destination without its VPN, that destination will also be unavailable to the Mac.
 - On rooted Android builds where DHCP and ICMP work but TCP stalls, inspect `dumpsys tethering` for conntrack/BPF errors. The Android BPF offload can be disabled for diagnosis with `device_config put connectivity override_tether_enable_bpf_offload false`; delete that property to restore the device default.

@@ -1,0 +1,45 @@
+#!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+
+if (( $# != 2 )); then
+    print -u2 "usage: build-package <version> <output.pkg>"
+    exit 64
+fi
+
+version=$1
+output_path=$2
+repository_root=${0:a:h:h}
+build_directory="${repository_root}/build"
+network_tool="${build_directory}/horndis"
+status_app="${build_directory}/HoRNDISStatus.app"
+icon_file="${status_app}/Contents/Resources/HoRNDISStatus.icns"
+
+if [[ ! -x "${network_tool}" || ! -x "${status_app}/Contents/MacOS/horndis-status" || ! -s "${icon_file}" ]]; then
+    print -u2 "Build the universal HoRNDIS binaries and app before creating a package."
+    exit 1
+fi
+
+staging_directory=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/horndis-package.XXXXXX")
+trap '/bin/rm -rf -- "${staging_directory}"' EXIT
+package_root="${staging_directory}/root"
+
+/bin/mkdir -p "${package_root}/usr/local/bin" "${package_root}/Applications"
+/usr/bin/install -m 0755 "${network_tool}" "${package_root}/usr/local/bin/horndis"
+/usr/bin/install -m 0755 "${repository_root}/Scripts/horndis-install" \
+    "${package_root}/usr/local/bin/horndis-install"
+/bin/cp -R "${status_app}" "${package_root}/Applications/HoRNDIS Status.app"
+/usr/bin/xattr -cr "${package_root}/Applications/HoRNDIS Status.app"
+/bin/ln -s "/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status" \
+    "${package_root}/usr/local/bin/horndis-status"
+
+output_directory=${output_path:a:h}
+/bin/mkdir -p "${output_directory}"
+/usr/bin/pkgbuild \
+    --root "${package_root}" \
+    --scripts "${repository_root}/Packaging/Scripts" \
+    --component-plist "${repository_root}/Packaging/components.plist" \
+    --identifier io.github.noahhhi.horndis.pkg \
+    --version "${version}" \
+    --install-location / \
+    "${output_path:a}"

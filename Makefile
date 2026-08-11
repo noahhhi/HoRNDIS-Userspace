@@ -21,6 +21,10 @@ TARGET := $(BUILD_DIR)/horndis
 STATUS_TARGET := $(BUILD_DIR)/horndis-status
 STATUS_APP := $(BUILD_DIR)/HoRNDISStatus.app
 STATUS_APP_BINARY := $(STATUS_APP)/Contents/MacOS/horndis-status
+STATUS_APP_ICON := $(STATUS_APP)/Contents/Resources/HoRNDISStatus.icns
+STATUS_ICON_GENERATOR := $(BUILD_DIR)/generate-horndis-icon
+STATUS_ICONSET := $(BUILD_DIR)/HoRNDISStatus.iconset
+STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
 STATUS_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-status-,$(STATUS_ARCHS))
 TEST_TARGET := $(BUILD_DIR)/rndis-protocol-tests
 
@@ -41,9 +45,19 @@ $(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift
 	$(SWIFTC) -O -whole-module-optimization -target $*-apple-macosx11.0 \
 		-framework AppKit -framework Foundation -framework SwiftUI $< -o $@
 
-$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) StatusApp/Info.plist
-	@mkdir -p "$(STATUS_APP)/Contents/MacOS"
+$(STATUS_ICON_GENERATOR): StatusApp/GenerateAppIcon.swift
+	@mkdir -p $(@D)
+	$(SWIFTC) -O -framework AppKit -framework Foundation $< -o $@
+
+$(STATUS_ICON): $(STATUS_ICON_GENERATOR)
+	@mkdir -p "$(STATUS_ICONSET)"
+	$(STATUS_ICON_GENERATOR) "$(STATUS_ICONSET)"
+	iconutil -c icns -o "$@" "$(STATUS_ICONSET)"
+
+$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(STATUS_ICON) StatusApp/Info.plist
+	@mkdir -p "$(STATUS_APP)/Contents/MacOS" "$(STATUS_APP)/Contents/Resources"
 	install -m 0644 StatusApp/Info.plist "$(STATUS_APP)/Contents/Info.plist"
+	install -m 0644 "$(STATUS_ICON)" "$(STATUS_APP_ICON)"
 	xcrun lipo -create $(STATUS_ARCH_TARGETS) -output "$@"
 
 $(STATUS_TARGET): $(STATUS_APP_BINARY)
@@ -60,6 +74,7 @@ test: $(TEST_TARGET) $(STATUS_TARGET)
 install: $(TARGET) $(STATUS_TARGET)
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 0755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/horndis
+	install -m 0755 Scripts/horndis-install $(DESTDIR)$(PREFIX)/bin/horndis-install
 	cp -R "$(STATUS_APP)" "$(DESTDIR)$(PREFIX)/HoRNDISStatus.app"
 	ln -sfn "../HoRNDISStatus.app/Contents/MacOS/horndis-status" \
 		$(DESTDIR)$(PREFIX)/bin/horndis-status

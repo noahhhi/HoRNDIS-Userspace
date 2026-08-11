@@ -25,3 +25,10 @@ jobs:
           lipo -archs build/horndis | grep -q x86_64
           lipo -archs build/horndis-status | grep -q arm64
           lipo -archs build/horndis-status | grep -q x86_64
+      - name: Verify app icon and installer package
+        run: |
+          test "$(plutil -extract CFBundleIconFile raw build/HoRNDISStatus.app/Contents/Info.plist)" = "HoRNDISStatus"
+          test -s build/HoRNDISStatus.app/Contents/Resources/HoRNDISStatus.icns
+          Scripts/build-package 0.0.0 build/HoRNDIS-Userspace-test.pkg
+          pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "usr/local/bin/horndis"
+          pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "Applications/HoRNDIS Status.app/Contents/Resources/HoRNDISStatus.icns"
