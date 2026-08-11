@@ -42,7 +42,7 @@ The runtime directory is assigned to the current console user after privileged s
 3. install the root-owned LaunchDaemon plist;
 4. bootstrap the service.
 
-The Homebrew path's password is handled by `sudo`, while the package path uses macOS Installer authorization; HoRNDIS never reads or stores either credential. The LaunchDaemon supplies persistence, so storing credentials in a script, Skill, Keychain lookup, environment variable, or sudoers exception is unnecessary. The menu LaunchAgent is installed afterward as the console user and needs no additional authorization.
+The Homebrew command-line path's password is handled by `sudo`, while the package path uses macOS Installer authorization. The menu app provides a third entry point: it verifies that the helper and LaunchDaemon plist are root-owned, non-writable by ordinary users, and structurally valid; when they are not, **Authorize and Install…** asks the macOS Security Agent to run only the fixed bundled `horndis service install` command. HoRNDIS never reads or stores a credential in any path. The LaunchDaemon supplies persistence, so storing credentials in a script, Skill, Keychain lookup, environment variable, or sudoers exception is unnecessary. The menu LaunchAgent runs as the console user and needs no additional authorization.
 
 ## Remaining risk
 

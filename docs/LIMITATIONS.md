@@ -31,4 +31,4 @@
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
 - Status refreshes every two seconds while the menu is closed and every second while it is visible, so very short transitions can still be missed.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.
-- Quitting or crashing the menu bar process does not stop tethering. Conversely, the status UI cannot repair a stopped or uninstalled privileged service without the normal one-time administrator-authorized installation.
+- Quitting or crashing the menu bar process does not stop tethering. A missing or invalid privileged installation can be repaired with the menu's one-time **Authorize and Install…** action or the `horndis-install` command; both still require normal macOS administrator authentication.

@@ -1,5 +1,10 @@
 # HoRNDIS Userspace
 
+<p align="center">
+  <a href="README.md">English</a> |
+  <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 Entitlement-free Android USB tethering for modern macOS. It keeps System Integrity Protection enabled and moves the entire RNDIS data path out of the kernel.
 
 [English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md)
@@ -30,7 +35,7 @@ curl https://ifconfig.me
 
 The launch daemon waits when no phone is connected and reconnects automatically after USB hot-plug or tethering mode changes. Its log is `/var/log/horndis.log`.
 
-The menu bar starts in a compact view showing the Android device, session RX/TX totals, connection duration, **USB Tethering**, and login-start switches. Visible values refresh every second. Open the system-animated **Details** submenu for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. The switch talks only to a local Unix socket and never asks for an administrator password.
+The menu bar starts in a compact view showing the Android device, session RX/TX totals, connection duration, persistent authorization state, **USB Tethering**, and login-start switches. If the privileged service is missing, an **Authorize and Install…** row invokes the standard macOS administrator authentication dialog for the fixed bundled installer command. Visible values refresh every second. Expand the system-animated **Details** disclosure for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. Normal switches talk only to a local Unix socket and never ask for an administrator password.
 
 To remove it:
 
@@ -77,7 +82,7 @@ unprivileged data agent
 - USB discovery, RNDIS parsing, packet forwarding, runtime status, and menu control all execute in that unprivileged data agent. The root supervisor does not parse device-controlled traffic.
 - The optional menu bar process is also unprivileged and isolated from the data path. Quitting it cannot disconnect the USB network.
 
-Administrator authorization is required only to install or upgrade the root-owned LaunchDaemon. At each boot the privileged setup lasts only long enough to create the network capability; reboot, login, sleep/wake, USB reconnect, and menu use require no further authorization. See the [privilege model](docs/PRIVILEGE_MODEL.md).
+Administrator authorization is required only to install or upgrade the root-owned LaunchDaemon. It can be requested with `horndis-install` in a terminal or from **Authorize and Install…** in the menu bar. At each boot the privileged setup lasts only long enough to create the network capability; reboot, login, sleep/wake, USB reconnect, and normal menu use require no further authorization. See the [privilege model](docs/PRIVILEGE_MODEL.md).
 
 ## Commands
 
