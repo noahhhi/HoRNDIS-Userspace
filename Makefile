@@ -1,7 +1,7 @@
 PREFIX ?= /usr/local
 DESTDIR ?=
 BUILD_DIR ?= build
-VERSION ?= 0.2.2
+VERSION ?= 0.2.3
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 

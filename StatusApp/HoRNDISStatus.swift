@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import SwiftUI
 
-private let horndisStatusVersion = "0.2.2"
+private let horndisStatusVersion = "0.2.3"
 private let statusPath = "/var/run/horndis/status.json"
 private let controlPath = "/var/run/horndis/control.sock"
 private let launchAgentLabel = "io.github.noahhhi.horndis.status"
@@ -551,15 +551,64 @@ private struct StatusPopoverActionRow: View {
     }
 }
 
-private struct SystemDisclosureAnimation: ViewModifier {
-    let expanded: Bool
+@available(macOS 13.0, *)
+private struct StatusPopoverDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                if #available(macOS 14.0, *) {
+                    withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+                        configuration.isExpanded.toggle()
+                    }
+                } else {
+                    withAnimation(.spring().speed(1.6)) {
+                        configuration.isExpanded.toggle()
+                    }
+                }
+            } label: {
+                configuration.label
+            }
+            .buttonStyle(.plain)
 
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(macOS 14.0, *) {
-            content.animation(.smooth, value: expanded)
-        } else {
-            content.animation(.default, value: expanded)
+            if configuration.isExpanded {
+                configuration.content
+            }
+        }
+        .clipped()
+    }
+}
+
+private struct StatusPopoverDisclosureLabel: View {
+    let expanded: Bool
+    @StateObject private var hoverModel = StatusPopoverHoverModel()
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "info.circle")
+                .frame(width: 16)
+            Text(localized("Details", "详细信息"))
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(hoverModel.isHovered
+                    ? Color(NSColor.selectedMenuItemTextColor).opacity(0.8)
+                    : .secondary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 32)
+        .foregroundColor(hoverModel.isHovered
+            ? Color(NSColor.selectedMenuItemTextColor)
+            : Color.primary)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(hoverModel.isHovered ? Color.accentColor : .clear)
+        )
+        .contentShape(Rectangle())
+        .padding(.horizontal, 4)
+        .frame(height: 38)
+        .onHover { hovering in
+            hoverModel.isHovered = hovering
         }
     }
 }
@@ -575,6 +624,58 @@ private struct StatusPopoverContent: View {
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(get: { model.launchAtLoginOn },
                 set: { model.setLaunchAtLogin($0) })
+    }
+
+    private var legacyDetailsBinding: Binding<Bool> {
+        Binding(get: { model.detailsExpanded },
+                set: { expanded in
+                    withAnimation(.spring().speed(1.6)) {
+                        model.detailsExpanded = expanded
+                    }
+                })
+    }
+
+    private var detailsContent: some View {
+        VStack(spacing: 0) {
+            Divider().padding(.horizontal, 10)
+            ForEach(model.detailRows) { row in
+                StatusPopoverInfoRow(row: row)
+            }
+            StatusPopoverActionRow(title: localized("Copy Diagnostics",
+                                                    "复制诊断信息"),
+                                   symbol: "doc.on.doc",
+                                   action: model.copyDiagnostics)
+            StatusPopoverActionRow(title: localized("Open Service Log",
+                                                    "打开服务日志"),
+                                   symbol: "doc.text",
+                                   action: model.openLog)
+            StatusPopoverActionRow(title: localized("Open Project Page",
+                                                    "打开项目主页"),
+                                   symbol: "safari",
+                                   action: model.openProject)
+        }
+    }
+
+    private var detailsLabel: some View {
+        StatusPopoverDisclosureLabel(expanded: model.detailsExpanded)
+    }
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        if #available(macOS 13.0, *) {
+            DisclosureGroup(isExpanded: $model.detailsExpanded) {
+                detailsContent
+            } label: {
+                detailsLabel
+            }
+            .disclosureGroupStyle(StatusPopoverDisclosureStyle())
+        } else {
+            DisclosureGroup(isExpanded: legacyDetailsBinding) {
+                detailsContent
+            } label: {
+                detailsLabel
+            }
+        }
     }
 
     var body: some View {
@@ -601,37 +702,7 @@ private struct StatusPopoverContent: View {
                                    isOn: launchAtLoginBinding,
                                    isEnabled: true)
 
-            DisclosureGroup(isExpanded: $model.detailsExpanded) {
-                VStack(spacing: 0) {
-                    Divider().padding(.horizontal, 10)
-                    ForEach(model.detailRows) { row in
-                        StatusPopoverInfoRow(row: row)
-                    }
-                    StatusPopoverActionRow(title: localized("Copy Diagnostics",
-                                                            "复制诊断信息"),
-                                           symbol: "doc.on.doc",
-                                           action: model.copyDiagnostics)
-                    StatusPopoverActionRow(title: localized("Open Service Log",
-                                                            "打开服务日志"),
-                                           symbol: "doc.text",
-                                           action: model.openLog)
-                    StatusPopoverActionRow(title: localized("Open Project Page",
-                                                            "打开项目主页"),
-                                           symbol: "safari",
-                                           action: model.openProject)
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "info.circle")
-                        .frame(width: 16)
-                    Text(localized("Details", "详细信息"))
-                    Spacer(minLength: 8)
-                }
-                .frame(height: 32)
-                .contentShape(Rectangle())
-            }
-            .padding(.horizontal, 12)
-            .modifier(SystemDisclosureAnimation(expanded: model.detailsExpanded))
+            detailsSection
 
             Divider().padding(.horizontal, 10)
 
@@ -715,7 +786,12 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
         }
         popoverModel.didDisappear = { [weak self] in
             self?.menuIsOpen = false
-            self?.popoverModel.detailsExpanded = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self, !self.menuIsOpen else {
+                    return
+                }
+                self.popoverModel.detailsExpanded = false
+            }
         }
     }
 
@@ -830,7 +906,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
             formatter.unitsStyle = .abbreviated
             let duration = runtime.connectedSince > 0 ? formatter.string(from: interval) ?? "—" : "—"
             content.append(("\(localized("Device", "设备")): \(device)", "iphone"))
-            content.append(("↓ \(received)    ↑ \(transmitted)", "arrow.up.arrow.down"))
+            content.append(("↑ \(transmitted)    ↓ \(received)", "arrow.up.arrow.down"))
             content.append(("\(localized("Connected", "连接时长")): \(duration)", "clock"))
         } else if let address = snapshot.ipAddress {
             content.append(("\(localized("Device", "设备")): Android", "iphone"))
@@ -839,7 +915,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
         } else {
             content.append(("\(localized("Device", "设备")): \(localized("No device", "未连接设备"))",
                             "iphone"))
-            content.append(("↓ 0 bytes    ↑ 0 bytes", "arrow.up.arrow.down"))
+            content.append(("↑ 0 bytes    ↓ 0 bytes", "arrow.up.arrow.down"))
             content.append(("\(localized("Connected", "连接时长")): —", "clock"))
         }
         content.append((authorizationState.title, authorizationState.symbol))

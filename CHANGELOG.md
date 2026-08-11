@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 - 2026-08-12
+
+- Use Apple's `DisclosureGroupStyle` pattern with a native, faster smooth spring for matching expand and collapse animations.
+- Make the complete Details row clickable with the system accent-color hover treatment, and keep its icon and text aligned with the surrounding controls.
+- Prevent transient menu-window resize callbacks from cancelling disclosure animations, align expanded rows with the compact view, and display transmitted traffic before received traffic.
+
 ## 0.2.2 - 2026-08-12
 
 - Avoid SwiftUI's external `@State` macro for action-row hover tracking so source builds work with the standalone macOS 27 Command Line Tools as well as full Xcode.
