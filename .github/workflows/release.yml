@@ -18,10 +18,10 @@ jobs:
           make test
           make clean
           make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64" VERSION="${GITHUB_REF_NAME#v}"
-          lipo -verify_arch arm64 build/horndis
-          lipo -verify_arch x86_64 build/horndis
-          lipo -verify_arch arm64 build/horndis-status
-          lipo -verify_arch x86_64 build/horndis-status
+          lipo -archs build/horndis | grep -q arm64
+          lipo -archs build/horndis | grep -q x86_64
+          lipo -archs build/horndis-status | grep -q arm64
+          lipo -archs build/horndis-status | grep -q x86_64
           codesign --force --sign - build/horndis
           codesign --force --deep --sign - build/HoRNDISStatus.app
           file build/horndis

@@ -280,30 +280,133 @@ private enum ControlClient {
     }
 }
 
+private enum MenuMetrics {
+    static let width: CGFloat = 286
+    static let rowHeight: CGFloat = 30
+    static let horizontalInset: CGFloat = 13
+    static let iconSize: CGFloat = 16
+    static let iconTextGap: CGFloat = 10
+    static let textX = horizontalInset + iconSize + iconTextGap
+}
+
 @MainActor
-private final class MenuSwitchRowView: NSView {
-    let toggle: NSSwitch
+private class HighlightableMenuRowView: NSView {
+    private var trackingAreaReference: NSTrackingArea?
+    private(set) var isHovered = false
+    var allowsHighlight = true
+
+    init() {
+        super.init(frame: NSRect(x: 0,
+                                 y: 0,
+                                 width: MenuMetrics.width,
+                                 height: MenuMetrics.rowHeight))
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func updateTrackingAreas() {
+        if let trackingAreaReference {
+            removeTrackingArea(trackingAreaReference)
+        }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  owner: self,
+                                  userInfo: nil)
+        addTrackingArea(area)
+        trackingAreaReference = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard allowsHighlight else {
+            return
+        }
+        isHovered = true
+        needsDisplay = true
+        hoverStateDidChange()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        needsDisplay = true
+        hoverStateDidChange()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if isHovered && allowsHighlight {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 2),
+                         xRadius: 6,
+                         yRadius: 6).fill()
+        }
+    }
+
+    func hoverStateDidChange() {}
+}
+
+@MainActor
+private final class SystemAccentSwitch: NSSwitch {
+    override func draw(_ dirtyRect: NSRect) {
+        guard state == .on else {
+            super.draw(dirtyRect)
+            return
+        }
+
+        let trackRect = bounds.insetBy(dx: 1, dy: 1)
+        let accentColor = isEnabled
+            ? NSColor.controlAccentColor
+            : NSColor.controlAccentColor.withAlphaComponent(0.45)
+        accentColor.setFill()
+        NSBezierPath(roundedRect: trackRect,
+                     xRadius: trackRect.height / 2,
+                     yRadius: trackRect.height / 2).fill()
+
+        let knobInset: CGFloat = 2
+        let knobDiameter = trackRect.height - knobInset * 2
+        let knobRect = NSRect(x: trackRect.maxX - knobInset - knobDiameter,
+                              y: trackRect.minY + knobInset,
+                              width: knobDiameter,
+                              height: knobDiameter)
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        shadow.set()
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: knobRect).fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
+@MainActor
+private final class MenuSwitchRowView: HighlightableMenuRowView {
+    let toggle: SystemAccentSwitch
+    private let titleLabel: NSTextField
 
     init(title: String,
          state: NSControl.StateValue,
          isEnabled: Bool,
          target: AnyObject,
          action: Selector) {
-        let rowHeight: CGFloat = 30
-        let horizontalInset: CGFloat = 13
-        toggle = NSSwitch()
-        super.init(frame: NSRect(x: 0, y: 0, width: 286, height: rowHeight))
+        toggle = SystemAccentSwitch()
+        titleLabel = NSTextField(labelWithString: title)
+        super.init()
 
-        let label = NSTextField(labelWithString: title)
-        label.font = NSFont.menuFont(ofSize: 0)
-        label.lineBreakMode = .byTruncatingTail
-        label.sizeToFit()
-        label.frame = NSRect(x: horizontalInset,
-                             y: floor((rowHeight - label.frame.height) / 2),
-                             width: 195,
-                             height: label.frame.height)
-        label.autoresizingMask = [.width]
-        addSubview(label)
+        allowsHighlight = isEnabled
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.sizeToFit()
+        titleLabel.frame = NSRect(x: MenuMetrics.horizontalInset,
+                                  y: floor((MenuMetrics.rowHeight - titleLabel.frame.height) / 2),
+                                  width: 195,
+                                  height: titleLabel.frame.height)
+        titleLabel.autoresizingMask = [.width]
+        addSubview(titleLabel)
 
         toggle.controlSize = .small
         toggle.state = state
@@ -311,10 +414,151 @@ private final class MenuSwitchRowView: NSView {
         toggle.target = target
         toggle.action = action
         toggle.sizeToFit()
-        toggle.frame.origin = NSPoint(x: frame.width - horizontalInset - toggle.frame.width,
-                                      y: floor((rowHeight - toggle.frame.height) / 2))
+        toggle.frame.origin = NSPoint(
+            x: frame.width - MenuMetrics.horizontalInset - toggle.frame.width,
+            y: floor((MenuMetrics.rowHeight - toggle.frame.height) / 2)
+        )
         toggle.autoresizingMask = [.minXMargin]
         addSubview(toggle)
+
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hoverStateDidChange() {
+        titleLabel.textColor = isHovered ? .selectedMenuItemTextColor : (toggle.isEnabled
+            ? .labelColor
+            : .disabledControlTextColor)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if toggle.isEnabled && bounds.contains(point) && !toggle.frame.contains(point) {
+            toggle.performClick(self)
+        }
+    }
+}
+
+@MainActor
+private final class MenuActionRowView: HighlightableMenuRowView {
+    private let iconView: NSImageView
+    private let titleLabel: NSTextField
+    private let shortcutLabel: NSTextField?
+    private weak var actionTarget: AnyObject?
+    private let actionSelector: Selector
+
+    var title: String {
+        get { titleLabel.stringValue }
+        set { titleLabel.stringValue = newValue }
+    }
+
+    init(title: String,
+         image: NSImage?,
+         target: AnyObject,
+         action: Selector,
+         keyEquivalent: String = "") {
+        iconView = NSImageView()
+        titleLabel = NSTextField(labelWithString: title)
+        shortcutLabel = keyEquivalent.isEmpty
+            ? nil
+            : NSTextField(labelWithString: "⌘\(keyEquivalent.uppercased())")
+        actionTarget = target
+        actionSelector = action
+        super.init()
+
+        iconView.image = image
+        iconView.contentTintColor = .labelColor
+        iconView.frame = NSRect(x: MenuMetrics.horizontalInset,
+                                y: floor((MenuMetrics.rowHeight - MenuMetrics.iconSize) / 2),
+                                width: MenuMetrics.iconSize,
+                                height: MenuMetrics.iconSize)
+        addSubview(iconView)
+
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.sizeToFit()
+        let shortcutWidth: CGFloat = shortcutLabel == nil ? 0 : 38
+        titleLabel.frame = NSRect(x: MenuMetrics.textX,
+                                  y: floor((MenuMetrics.rowHeight - titleLabel.frame.height) / 2),
+                                  width: MenuMetrics.width - MenuMetrics.textX -
+                                      MenuMetrics.horizontalInset - shortcutWidth,
+                                  height: titleLabel.frame.height)
+        titleLabel.autoresizingMask = [.width]
+        addSubview(titleLabel)
+
+        if let shortcutLabel {
+            shortcutLabel.font = NSFont.menuFont(ofSize: 0)
+            shortcutLabel.textColor = .tertiaryLabelColor
+            shortcutLabel.alignment = .right
+            shortcutLabel.sizeToFit()
+            shortcutLabel.frame = NSRect(
+                x: MenuMetrics.width - MenuMetrics.horizontalInset - shortcutWidth,
+                y: floor((MenuMetrics.rowHeight - shortcutLabel.frame.height) / 2),
+                width: shortcutWidth,
+                height: shortcutLabel.frame.height
+            )
+            shortcutLabel.autoresizingMask = [.minXMargin]
+            addSubview(shortcutLabel)
+        }
+
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hoverStateDidChange() {
+        let color: NSColor = isHovered ? .selectedMenuItemTextColor : .labelColor
+        iconView.contentTintColor = color
+        titleLabel.textColor = color
+        shortcutLabel?.textColor = isHovered ? .selectedMenuItemTextColor : .tertiaryLabelColor
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if bounds.contains(point) {
+            NSApp.sendAction(actionSelector, to: actionTarget, from: self)
+        }
+    }
+}
+
+@MainActor
+private final class MenuTextRowView: NSView {
+    init(title: String, image: NSImage?) {
+        super.init(frame: NSRect(x: 0,
+                                 y: 0,
+                                 width: MenuMetrics.width,
+                                 height: MenuMetrics.rowHeight))
+
+        let icon = NSImageView(frame: NSRect(
+            x: MenuMetrics.horizontalInset,
+            y: floor((MenuMetrics.rowHeight - MenuMetrics.iconSize) / 2),
+            width: MenuMetrics.iconSize,
+            height: MenuMetrics.iconSize
+        ))
+        icon.image = image
+        icon.contentTintColor = .secondaryLabelColor
+        addSubview(icon)
+
+        let label = NSTextField(labelWithString: title)
+        label.font = NSFont.menuFont(ofSize: 0)
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+        label.sizeToFit()
+        label.frame = NSRect(x: MenuMetrics.textX,
+                             y: floor((MenuMetrics.rowHeight - label.frame.height) / 2),
+                             width: MenuMetrics.width - MenuMetrics.textX -
+                                 MenuMetrics.horizontalInset,
+                             height: label.frame.height)
+        label.autoresizingMask = [.width]
+        addSubview(label)
     }
 
     required init?(coder: NSCoder) {
@@ -345,7 +589,7 @@ private struct DetailRow {
 private final class AnimatedDetailsView: NSView {
     private let collapsedTitle: String
     private let expandedTitle: String
-    private let headerButton: NSButton
+    private var headerRow: MenuActionRowView!
     private let contentView: NSView
     private let contentHeight: CGFloat
     private let onToggle: (Bool) -> Void
@@ -363,90 +607,65 @@ private final class AnimatedDetailsView: NSView {
         self.expanded = expanded
         self.onToggle = onToggle
 
-        let width: CGFloat = 286
-        let headerHeight: CGFloat = 30
-        let textHeight: CGFloat = 24
         let separatorHeight: CGFloat = 10
         contentHeight = rows.reduce(0) { partial, row in
-            partial + (row.kind.isSeparator ? separatorHeight : textHeight)
+            partial + (row.kind.isSeparator ? separatorHeight : MenuMetrics.rowHeight)
         }
-        headerButton = NSButton()
-        contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: contentHeight))
+        contentView = NSView(frame: NSRect(x: 0,
+                                           y: 0,
+                                           width: MenuMetrics.width,
+                                           height: contentHeight))
         super.init(frame: NSRect(x: 0,
                                  y: 0,
-                                 width: width,
-                                 height: headerHeight + (expanded ? contentHeight : 0)))
+                                 width: MenuMetrics.width,
+                                 height: MenuMetrics.rowHeight +
+                                     (expanded ? contentHeight : 0)))
+
+        headerRow = MenuActionRowView(title: expanded ? expandedTitle : collapsedTitle,
+                                      image: symbolImage("info.circle"),
+                                      target: self,
+                                      action: #selector(toggle))
 
         wantsLayer = true
         layer?.masksToBounds = true
 
-        headerButton.title = expanded ? expandedTitle : collapsedTitle
-        headerButton.image = symbolImage("info.circle")
-        headerButton.imagePosition = .imageLeading
-        headerButton.imageHugsTitle = true
-        headerButton.font = NSFont.menuFont(ofSize: 0)
-        headerButton.alignment = .left
-        headerButton.isBordered = false
-        headerButton.target = self
-        headerButton.action = #selector(toggle)
-        headerButton.frame = NSRect(x: 8,
-                                    y: expanded ? contentHeight : 0,
-                                    width: width - 16,
-                                    height: headerHeight)
-        headerButton.autoresizingMask = [.width]
-        addSubview(headerButton)
+        headerRow.frame.origin.y = expanded ? contentHeight : 0
+        headerRow.autoresizingMask = [.width]
+        addSubview(headerRow)
 
         var cursor = contentHeight
         for row in rows {
-            let height = row.kind.isSeparator ? separatorHeight : textHeight
+            let height = row.kind.isSeparator ? separatorHeight : MenuMetrics.rowHeight
             cursor -= height
 
             switch row.kind {
             case .separator:
                 let line = NSBox(frame: NSRect(x: 13,
                                                y: cursor + floor(height / 2),
-                                               width: width - 26,
+                                               width: MenuMetrics.width - 26,
                                                height: 1))
                 line.boxType = .separator
                 line.autoresizingMask = [.width]
                 contentView.addSubview(line)
             case .text:
-                let icon = NSImageView(frame: NSRect(x: 13,
-                                                     y: cursor + 4,
-                                                     width: 16,
-                                                     height: 16))
-                icon.image = symbolImage(row.symbol)
-                contentView.addSubview(icon)
-
-                let label = NSTextField(labelWithString: row.title)
-                label.font = NSFont.menuFont(ofSize: 0)
-                label.textColor = .secondaryLabelColor
-                label.lineBreakMode = .byTruncatingTail
-                label.frame = NSRect(x: 39,
-                                     y: cursor + 3,
-                                     width: width - 52,
-                                     height: 18)
-                label.autoresizingMask = [.width]
-                contentView.addSubview(label)
+                let textRow = MenuTextRowView(title: row.title,
+                                              image: symbolImage(row.symbol))
+                textRow.frame.origin.y = cursor
+                textRow.autoresizingMask = [.width]
+                contentView.addSubview(textRow)
             case let .action(selector):
-                let button = NSButton(title: row.title, target: target, action: selector)
-                button.image = symbolImage(row.symbol)
-                button.imagePosition = .imageLeading
-                button.imageHugsTitle = true
-                button.font = NSFont.menuFont(ofSize: 0)
-                button.alignment = .left
-                button.isBordered = false
-                button.frame = NSRect(x: 8,
-                                      y: cursor,
-                                      width: width - 16,
-                                      height: height)
-                button.autoresizingMask = [.width]
-                contentView.addSubview(button)
+                let actionRow = MenuActionRowView(title: row.title,
+                                                  image: symbolImage(row.symbol),
+                                                  target: target,
+                                                  action: selector)
+                actionRow.frame.origin.y = cursor
+                actionRow.autoresizingMask = [.width]
+                contentView.addSubview(actionRow)
             }
         }
 
         contentView.alphaValue = expanded ? 1 : 0
-        addSubview(contentView, positioned: .below, relativeTo: headerButton)
+        addSubview(contentView, positioned: .below, relativeTo: headerRow)
     }
 
     required init?(coder: NSCoder) {
@@ -464,15 +683,14 @@ private final class AnimatedDetailsView: NSView {
         expanded = newValue
         onToggle(newValue)
 
-        let headerHeight: CGFloat = 30
-        let targetHeight = headerHeight + (newValue ? contentHeight : 0)
-        let targetHeaderOrigin = NSPoint(x: headerButton.frame.origin.x,
+        let targetHeight = MenuMetrics.rowHeight + (newValue ? contentHeight : 0)
+        let targetHeaderOrigin = NSPoint(x: headerRow.frame.origin.x,
                                          y: newValue ? contentHeight : 0)
-        headerButton.title = newValue ? expandedTitle : collapsedTitle
+        headerRow.title = newValue ? expandedTitle : collapsedTitle
 
         guard animated else {
             frame.size.height = targetHeight
-            headerButton.frame.origin = targetHeaderOrigin
+            headerRow.frame.origin = targetHeaderOrigin
             contentView.alphaValue = newValue ? 1 : 0
             return
         }
@@ -481,7 +699,7 @@ private final class AnimatedDetailsView: NSView {
             context.duration = 0.22
             context.allowsImplicitAnimation = true
             animator().setFrameSize(NSSize(width: frame.width, height: targetHeight))
-            headerButton.animator().setFrameOrigin(targetHeaderOrigin)
+            headerRow.animator().setFrameOrigin(targetHeaderOrigin)
             contentView.animator().alphaValue = newValue ? 1 : 0
         }
     }
@@ -574,9 +792,9 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     }
 
     private func disabledItem(_ title: String, symbol: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let item = NSMenuItem()
         item.isEnabled = false
-        item.image = symbolImage(symbol)
+        item.view = MenuTextRowView(title: title, image: symbolImage(symbol))
         return item
     }
 
@@ -615,7 +833,11 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
                             keyEquivalent: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.target = self
-        item.image = symbolImage(symbol)
+        item.view = MenuActionRowView(title: title,
+                                      image: symbolImage(symbol),
+                                      target: self,
+                                      action: action,
+                                      keyEquivalent: keyEquivalent)
         return item
     }
 
