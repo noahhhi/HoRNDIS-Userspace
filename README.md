@@ -2,6 +2,8 @@
 
 Entitlement-free Android USB tethering for modern macOS. It keeps System Integrity Protection enabled and moves the entire RNDIS data path out of the kernel.
 
+[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md)
+
 > **Preview:** RNDIS is implemented and tested with a Pixel 4 XL. CDC-ECM and CDC-NCM devices are detected so future transports can be added without replacing the macOS network backend.
 
 Current reference test: Apple Silicon Mac running macOS 27.0, Pixel 4 XL running Android 13, RNDIS interfaces 0/1 alongside ADB interface 2. USB initialization, DHCP, ARP, aggregated RNDIS frames, ICMP, and bidirectional TCP payloads are covered by local or device tests.
@@ -13,7 +15,10 @@ The recommended installation builds locally from source, so it needs neither a p
 ```sh
 brew install noahhhi/tap/horndis
 sudo horndis service install
+horndis-status install
 ```
+
+The last command starts the optional lightweight Swift/AppKit menu bar status app and enables it at login. It does not use `sudo`. The Homebrew formula builds and installs native code for the current Mac; release downloads contain both Apple Silicon and Intel slices.
 
 Enable **USB tethering** on Android, then verify:
 
@@ -25,10 +30,13 @@ curl https://ifconfig.me
 
 The launch daemon waits when no phone is connected and reconnects automatically after USB hot-plug or tethering mode changes. Its log is `/var/log/horndis.log`.
 
+The menu bar starts in a compact view showing the Android device, session RX/TX totals, connection duration, a native **USB Tethering** switch, and login-start setting. Choose **Show Details** for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. The switch talks only to a local Unix socket and never asks for an administrator password.
+
 To remove it:
 
 ```sh
 sudo horndis service uninstall
+horndis-status uninstall
 brew uninstall horndis
 brew untap noahhhi/tap
 ```
@@ -53,14 +61,23 @@ Android RNDIS control + bulk endpoints
  SystemConfiguration / DHCP adapter
              ↕
        macOS TCP/IP stack
+
+unprivileged data agent
+             ↕
+  read-only status + local control socket
+             ↕
+     Swift/AppKit menu bar status
 ```
 
 - `IOUSBHost` claims only the RNDIS control and data interfaces. ADB stays on its separate USB interface.
 - A paired `feth` device gives macOS a normal Ethernet interface while BPF exchanges raw frames with the daemon.
 - The network adapter first uses public `SystemConfiguration`. Current macOS does not expose dynamically cloned feth devices there, so it falls back to the system `ipconfig` DHCP client and recreates that temporary service on every connection.
 - No kext, dext, restricted entitlement, recovery-mode change, or SIP change is required.
+- A small root supervisor performs only the operations macOS reserves for root: create/configure feth, start DHCP, and open one BPF descriptor. It passes that already-open descriptor as a capability to a permanently unprivileged child running as the current console user.
+- USB discovery, RNDIS parsing, packet forwarding, runtime status, and menu control all execute in that unprivileged data agent. The root supervisor does not parse device-controlled traffic.
+- The optional menu bar process is also unprivileged and isolated from the data path. Quitting it cannot disconnect the USB network.
 
-The daemon runs as root because macOS restricts BPF devices and system network configuration. The USB and RNDIS parsing code still runs in a normal user-space process; a malformed device cannot execute code in the kernel through this project.
+Administrator authorization is required only to install or upgrade the root-owned LaunchDaemon. At each boot the privileged setup lasts only long enough to create the network capability; reboot, login, sleep/wake, USB reconnect, and menu use require no further authorization. See the [privilege model](docs/PRIVILEGE_MODEL.md).
 
 ## Commands
 
@@ -71,13 +88,16 @@ sudo horndis run              run in the foreground
 sudo horndis service install  install and start the launch daemon
 sudo horndis service uninstall
 horndis --version
+horndis-status                 run the menu bar status app
+horndis-status install         start now and at login (no root required)
+horndis-status uninstall       remove the login item
 ```
 
 The bridge defaults to `feth99` for macOS and `feth98` for the daemon. Root launch environments can override them with `HORNDIS_HOST_INTERFACE` and `HORNDIS_TRANSPORT_INTERFACE`; values are restricted to `feth<number>` names.
 
 ## Build
 
-Requirements: macOS 12 or later, Xcode Command Line Tools or Xcode, and GNU Make.
+Requirements: macOS 11 or later, Xcode Command Line Tools or Xcode, and GNU Make. macOS 11–14 and Intel builds are best-effort compatibility targets; the current hardware validation is listed at the top of this document.
 
 ```sh
 make
@@ -91,7 +111,7 @@ To build a universal release binary with a recent Xcode:
 
 ```sh
 make clean
-make ARCH_FLAGS="-arch arm64 -arch x86_64"
+make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64"
 ```
 
 ## Compatibility and long-term design
@@ -112,6 +132,7 @@ RNDIS currently supports Android gadget layouts `e0/01/03`, `02/02/ff`, and `ef/
 - `cannot claim ... interface`: stop another RNDIS driver or application that owns interfaces 0/1. ADB on interface 2 is compatible.
 - No address on `feth99`: turn USB tethering off and on, then inspect `/var/log/horndis.log`.
 - Service changes after an upgrade: rerun `sudo horndis service install` to copy the new binary into the privileged helper location.
+- Menu bar changes after an upgrade: rerun `horndis-status install`; this is unprivileged and refreshes its LaunchAgent path.
 - To keep Wi-Fi active while testing the phone path, bind the socket with `ping -b feth99 8.8.8.8`.
 - Android VPN apps normally do not share their tunnel through native USB tethering. If the phone's underlying Wi-Fi cannot access a destination without its VPN, that destination will also be unavailable to the Mac.
 - On rooted Android builds where DHCP and ICMP work but TCP stalls, inspect `dumpsys tethering` for conntrack/BPF errors. The Android BPF offload can be disabled for diagnosis with `device_config put connectivity override_tether_enable_bpf_offload false`; delete that property to restore the device default.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ServiceManager.hpp"
+#include "RuntimeStatus.hpp"
 
 #include <copyfile.h>
 #include <fcntl.h>
@@ -35,19 +36,48 @@ bool requireRoot(std::string& error) {
 
 bool runLaunchctl(const std::vector<std::string>& arguments,
                   bool allowFailure,
-                  std::string& error) {
+                  std::string& error,
+                  bool quiet = false) {
     std::vector<char*> argv{const_cast<char*>("/bin/launchctl")};
     for (const auto& argument : arguments) {
         argv.push_back(const_cast<char*>(argument.c_str()));
     }
     argv.push_back(nullptr);
     pid_t child = 0;
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_t* actionsPointer = nullptr;
+    if (quiet) {
+        const int initResult = posix_spawn_file_actions_init(&actions);
+        if (initResult != 0) {
+            error = "cannot configure launchctl output";
+            return false;
+        }
+        const int stdoutResult = posix_spawn_file_actions_addopen(&actions,
+                                                                  STDOUT_FILENO,
+                                                                  "/dev/null",
+                                                                  O_WRONLY,
+                                                                  0);
+        const int stderrResult = posix_spawn_file_actions_addopen(&actions,
+                                                                  STDERR_FILENO,
+                                                                  "/dev/null",
+                                                                  O_WRONLY,
+                                                                  0);
+        if (stdoutResult != 0 || stderrResult != 0) {
+            posix_spawn_file_actions_destroy(&actions);
+            error = "cannot configure launchctl output";
+            return false;
+        }
+        actionsPointer = &actions;
+    }
     const int spawnResult = posix_spawn(&child,
                                         "/bin/launchctl",
-                                        nullptr,
+                                        actionsPointer,
                                         nullptr,
                                         argv.data(),
                                         environ);
+    if (actionsPointer != nullptr) {
+        posix_spawn_file_actions_destroy(&actions);
+    }
     if (spawnResult != 0) {
         error = "cannot run launchctl: " + std::string(std::strerror(spawnResult));
         return false;
@@ -130,7 +160,7 @@ bool installLaunchDaemon(std::string& error) {
     }
 
     std::string ignored;
-    (void)runLaunchctl({"bootout", std::string("system/") + kLabel}, true, ignored);
+    (void)runLaunchctl({"bootout", std::string("system/") + kLabel}, true, ignored, true);
 
     const std::string temporaryHelper = std::string(kHelper) + ".tmp." + std::to_string(getpid());
     if (copyfile(source.c_str(), temporaryHelper.c_str(), nullptr, COPYFILE_DATA) != 0) {
@@ -164,9 +194,9 @@ bool installLaunchDaemon(std::string& error) {
 
     bool bootstrapped = false;
     std::string bootstrapError;
-    for (int attempt = 0; attempt < 10; ++attempt) {
+    for (int attempt = 0; attempt < 80; ++attempt) {
         bootstrapError.clear();
-        if (runLaunchctl({"bootstrap", "system", kPlist}, false, bootstrapError)) {
+        if (runLaunchctl({"bootstrap", "system", kPlist}, false, bootstrapError, true)) {
             bootstrapped = true;
             break;
         }
@@ -184,7 +214,7 @@ bool uninstallLaunchDaemon(std::string& error) {
         return false;
     }
     std::string ignored;
-    (void)runLaunchctl({"bootout", std::string("system/") + kLabel}, true, ignored);
+    (void)runLaunchctl({"bootout", std::string("system/") + kLabel}, true, ignored, true);
     if (unlink(kPlist) != 0 && errno != ENOENT) {
         error = "cannot remove the launch daemon configuration: " +
                 std::string(std::strerror(errno));
@@ -194,6 +224,7 @@ bool uninstallLaunchDaemon(std::string& error) {
         error = "cannot remove the privileged helper: " + std::string(std::strerror(errno));
         return false;
     }
+    removeRuntimeStatus();
     return true;
 }
 

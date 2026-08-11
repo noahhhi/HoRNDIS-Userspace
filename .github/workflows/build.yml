@@ -14,4 +14,14 @@ jobs:
       - name: Test
         run: make test
       - name: Verify CLI
-        run: ./build/horndis --version
+        run: |
+          ./build/horndis --version
+          ./build/horndis-status --version
+      - name: Verify universal Apple Silicon and Intel build
+        run: |
+          make clean
+          make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64"
+          lipo -archs build/horndis | grep -q arm64
+          lipo -archs build/horndis | grep -q x86_64
+          lipo -archs build/horndis-status | grep -q arm64
+          lipo -archs build/horndis-status | grep -q x86_64
