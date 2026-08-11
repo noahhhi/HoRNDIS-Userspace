@@ -1,20 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #import <Foundation/Foundation.h>
+#import <SystemConfiguration/SystemConfiguration.h>
 
 #include "USBTransport.hpp"
 #include "VirtualEthernet.hpp"
 #include "ServiceManager.hpp"
+#include "RuntimeStatus.hpp"
+#include "ControlServer.hpp"
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <grp.h>
 #include <iomanip>
 #include <iostream>
+#include <limits.h>
+#include <mach-o/dyld.h>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
@@ -50,6 +62,21 @@ std::string formatAddress(const std::vector<uint8_t>& address) {
 
 void logLine(const std::string& message) {
     std::cerr << "horndis: " << message << '\n';
+}
+
+uint64_t unixTimestamp() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                                     std::chrono::system_clock::now().time_since_epoch())
+                                     .count());
+}
+
+void publishStatus(const horndis::RuntimeStatus& status) {
+    static bool warned = false;
+    std::string error;
+    if (!horndis::publishRuntimeStatus(status, error) && !warned) {
+        logLine(error);
+        warned = true;
+    }
 }
 
 void printUsage() {
@@ -118,23 +145,65 @@ int usbTest() {
     return 0;
 }
 
-int runBridge() {
-    if (geteuid() != 0) {
-        std::cerr << "horndis run must execute as root. Use sudo or `sudo brew services start horndis`.\n";
-        return 1;
-    }
-    const char* hostEnvironment = std::getenv("HORNDIS_HOST_INTERFACE");
-    const char* transportEnvironment = std::getenv("HORNDIS_TRANSPORT_INTERFACE");
-    const std::string hostInterface = hostEnvironment != nullptr ? hostEnvironment : "feth99";
-    const std::string transportInterface =
-        transportEnvironment != nullptr ? transportEnvironment : "feth98";
-
+int runAgent(int bpfDescriptor,
+             const std::string& hostInterface,
+             const std::string& transportInterface) {
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
+    horndis::VirtualEthernet ethernet;
+    std::string error;
+    if (!ethernet.adoptDescriptor(bpfDescriptor, hostInterface, transportInterface, error)) {
+        logLine(error);
+        return 1;
+    }
+    horndis::RuntimeStatus runtimeStatus;
+    runtimeStatus.state = "waiting";
+    runtimeStatus.hostInterface = hostInterface;
+    runtimeStatus.detail = "Waiting for Android USB tethering";
+    horndis::ControlServer controlServer;
+    std::string controlError;
+    runtimeStatus.controlAvailable = controlServer.start(controlError);
+    if (!runtimeStatus.controlAvailable) {
+        logLine(controlError);
+    }
+    publishStatus(runtimeStatus);
     logLine("waiting for an Android RNDIS USB tethering interface");
+    bool userPaused = false;
 
     while (gRunning.load()) {
         @autoreleasepool {
+            if (const auto command = controlServer.pollCommand(); command.has_value()) {
+                userPaused = command.value() == horndis::ControlCommand::disconnect;
+            }
+            if (userPaused) {
+                runtimeStatus.state = "paused";
+                runtimeStatus.device.clear();
+                runtimeStatus.deviceAddress.clear();
+                runtimeStatus.detail = "Connection paused from the menu bar";
+                runtimeStatus.receivedBytes = 0;
+                runtimeStatus.transmittedBytes = 0;
+                runtimeStatus.connectedSince = 0;
+                publishStatus(runtimeStatus);
+                while (gRunning.load() && userPaused) {
+                    if (const auto command = controlServer.pollCommand(); command.has_value() &&
+                        command.value() == horndis::ControlCommand::connect) {
+                        userPaused = false;
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+                if (!gRunning.load()) {
+                    break;
+                }
+                runtimeStatus.state = "waiting";
+                runtimeStatus.detail = "Waiting for Android USB tethering";
+                publishStatus(runtimeStatus);
+                if (!ethernet.flush(error)) {
+                    logLine(error);
+                    return 1;
+                }
+            }
+
             const auto devices = horndis::RNDISUSBTransport::scan();
             const auto* device = firstSupported(devices);
             if (device == nullptr) {
@@ -142,31 +211,57 @@ int runBridge() {
                 continue;
             }
 
+            runtimeStatus.state = "connecting";
+            runtimeStatus.device = device->product;
+            runtimeStatus.deviceAddress.clear();
+            runtimeStatus.detail = "Initializing the RNDIS interface";
+            runtimeStatus.receivedBytes = 0;
+            runtimeStatus.transmittedBytes = 0;
+            runtimeStatus.connectedSince = 0;
+            publishStatus(runtimeStatus);
+
             horndis::RNDISUSBTransport usb;
-            std::string error;
+            error.clear();
             if (!usb.open(*device, error)) {
                 logLine(error);
+                runtimeStatus.state = "error";
+                runtimeStatus.detail = error;
+                publishStatus(runtimeStatus);
                 std::this_thread::sleep_for(std::chrono::seconds(2));
+                runtimeStatus.state = "waiting";
+                runtimeStatus.device.clear();
+                runtimeStatus.detail = "Waiting for Android USB tethering";
+                publishStatus(runtimeStatus);
                 continue;
             }
             std::vector<uint8_t> deviceAddress;
             if (!usb.initialize(deviceAddress, error)) {
                 logLine(error);
+                runtimeStatus.state = "error";
+                runtimeStatus.detail = error;
+                publishStatus(runtimeStatus);
                 std::this_thread::sleep_for(std::chrono::seconds(2));
+                runtimeStatus.state = "waiting";
+                runtimeStatus.device.clear();
+                runtimeStatus.detail = "Waiting for Android USB tethering";
+                publishStatus(runtimeStatus);
                 continue;
             }
 
-            horndis::VirtualEthernet ethernet;
-            if (!ethernet.open(hostInterface, transportInterface, error)) {
-                logLine(error);
-                return 1;
-            }
             logLine("connected " + device->product + " (" + formatAddress(deviceAddress) +
                     ") to " + hostInterface);
 
             std::atomic_bool sessionRunning{true};
+            std::atomic<uint64_t> receivedBytes{0};
+            std::atomic<uint64_t> transmittedBytes{0};
             std::mutex outboundErrorMutex;
             std::string outboundError;
+            runtimeStatus.state = "connected";
+            runtimeStatus.deviceAddress = formatAddress(deviceAddress);
+            runtimeStatus.detail = "USB tethering is active";
+            runtimeStatus.connectedSince = unixTimestamp();
+            publishStatus(runtimeStatus);
+            auto lastStatusUpdate = std::chrono::steady_clock::now();
             std::thread outbound([&] {
                 while (gRunning.load() && sessionRunning.load()) {
                     std::vector<uint8_t> frame;
@@ -191,6 +286,7 @@ int runBridge() {
                         sessionRunning.store(false);
                         break;
                     }
+                    transmittedBytes.fetch_add(frame.size(), std::memory_order_relaxed);
                 }
             });
 
@@ -199,14 +295,31 @@ int runBridge() {
                 bool timedOut = false;
                 error.clear();
                 if (!usb.readEthernetFrame(frame, timedOut, error)) {
-                    if (timedOut) {
-                        continue;
+                    if (!timedOut) {
+                        logLine(error);
+                        break;
                     }
-                    logLine(error);
-                    break;
+                } else {
+                    if (!ethernet.writeFrame(frame, error)) {
+                        logLine(error);
+                        break;
+                    }
+                    receivedBytes.fetch_add(frame.size(), std::memory_order_relaxed);
                 }
-                if (!ethernet.writeFrame(frame, error)) {
-                    logLine(error);
+
+                const auto now = std::chrono::steady_clock::now();
+                if (now - lastStatusUpdate >= std::chrono::seconds(1)) {
+                    runtimeStatus.receivedBytes =
+                        receivedBytes.load(std::memory_order_relaxed);
+                    runtimeStatus.transmittedBytes =
+                        transmittedBytes.load(std::memory_order_relaxed);
+                    publishStatus(runtimeStatus);
+                    lastStatusUpdate = now;
+                }
+                if (const auto command = controlServer.pollCommand(); command.has_value() &&
+                    command.value() == horndis::ControlCommand::disconnect) {
+                    userPaused = true;
+                    sessionRunning.store(false);
                     break;
                 }
             }
@@ -220,14 +333,221 @@ int runBridge() {
                 }
             }
             usb.close();
-            ethernet.close();
             if (gRunning.load()) {
-                logLine("device disconnected; waiting to reconnect");
+                logLine(userPaused ? "connection paused from the menu bar"
+                                   : "device disconnected; waiting to reconnect");
+                runtimeStatus.state = userPaused ? "paused" : "waiting";
+                runtimeStatus.device.clear();
+                runtimeStatus.deviceAddress.clear();
+                runtimeStatus.detail = userPaused
+                                           ? "Connection paused from the menu bar"
+                                           : "Device disconnected; waiting to reconnect";
+                runtimeStatus.receivedBytes = 0;
+                runtimeStatus.transmittedBytes = 0;
+                runtimeStatus.connectedSince = 0;
+                publishStatus(runtimeStatus);
                 std::this_thread::sleep_for(std::chrono::seconds(2));
             }
         }
     }
     logLine("stopped");
+    runtimeStatus.state = "stopped";
+    runtimeStatus.device.clear();
+    runtimeStatus.deviceAddress.clear();
+    runtimeStatus.detail = "HoRNDIS service is stopped";
+    runtimeStatus.receivedBytes = 0;
+    runtimeStatus.transmittedBytes = 0;
+    runtimeStatus.connectedSince = 0;
+    publishStatus(runtimeStatus);
+    return 0;
+}
+
+struct ConsoleUser {
+    uid_t user = 0;
+    gid_t group = 0;
+};
+
+std::optional<ConsoleUser> currentConsoleUser() {
+    uid_t user = 0;
+    gid_t group = 0;
+    CFStringRef name = SCDynamicStoreCopyConsoleUser(nullptr, &user, &group);
+    if (name == nullptr) {
+        return std::nullopt;
+    }
+    char buffer[256]{};
+    const bool converted =
+        CFStringGetCString(name, buffer, sizeof(buffer), kCFStringEncodingUTF8);
+    CFRelease(name);
+    if (!converted || user == 0 || user == static_cast<uid_t>(-1) ||
+        std::strcmp(buffer, "loginwindow") == 0 || std::strcmp(buffer, "_mbsetupuser") == 0) {
+        return std::nullopt;
+    }
+    return ConsoleUser{user, group};
+}
+
+std::string executablePath(std::string& error) {
+    uint32_t size = 0;
+    (void)_NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(size + 1, 0);
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        error = "cannot determine the horndis executable path";
+        return {};
+    }
+    char resolved[PATH_MAX]{};
+    if (realpath(buffer.data(), resolved) == nullptr) {
+        error = "cannot resolve the horndis executable path: " + std::string(std::strerror(errno));
+        return {};
+    }
+    return resolved;
+}
+
+bool prepareRuntimeDirectory(const ConsoleUser& identity, std::string& error) {
+    constexpr const char* directory = "/var/run/horndis";
+    if (mkdir(directory, 0755) != 0 && errno != EEXIST) {
+        error = "cannot create runtime directory: " + std::string(std::strerror(errno));
+        return false;
+    }
+    (void)unlink("/var/run/horndis/control.sock");
+    if (chown(directory, identity.user, identity.group) != 0 || chmod(directory, 0700) != 0) {
+        error = "cannot assign the runtime directory to the console user: " +
+                std::string(std::strerror(errno));
+        return false;
+    }
+    return true;
+}
+
+pid_t spawnAgent(const std::string& executable,
+                 int bpfDescriptor,
+                 const std::string& hostInterface,
+                 const std::string& transportInterface,
+                 const ConsoleUser& identity,
+                 std::string& error) {
+    const int descriptorFlags = fcntl(bpfDescriptor, F_GETFD);
+    if (descriptorFlags < 0 ||
+        fcntl(bpfDescriptor, F_SETFD, descriptorFlags & ~FD_CLOEXEC) != 0) {
+        error = "cannot prepare the BPF capability for the data agent: " +
+                std::string(std::strerror(errno));
+        return -1;
+    }
+
+    const std::string descriptor = std::to_string(bpfDescriptor);
+    const pid_t child = fork();
+    if (child == 0) {
+        const gid_t group = identity.group;
+        if (setgroups(1, &group) != 0 || setgid(identity.group) != 0 ||
+            setuid(identity.user) != 0) {
+            _exit(126);
+        }
+        execl(executable.c_str(),
+              executable.c_str(),
+              "agent",
+              descriptor.c_str(),
+              hostInterface.c_str(),
+              transportInterface.c_str(),
+              static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    const int savedError = errno;
+    (void)fcntl(bpfDescriptor, F_SETFD, descriptorFlags);
+    if (child < 0) {
+        error = "cannot start the unprivileged data agent: " +
+                std::string(std::strerror(savedError));
+        return -1;
+    }
+    return child;
+}
+
+int runBridge() {
+    if (geteuid() != 0) {
+        std::cerr << "horndis run must execute as root. Use `sudo horndis service install`.\n";
+        return 1;
+    }
+    const char* hostEnvironment = std::getenv("HORNDIS_HOST_INTERFACE");
+    const char* transportEnvironment = std::getenv("HORNDIS_TRANSPORT_INTERFACE");
+    const std::string hostInterface = hostEnvironment != nullptr ? hostEnvironment : "feth99";
+    const std::string transportInterface =
+        transportEnvironment != nullptr ? transportEnvironment : "feth98";
+
+    std::signal(SIGINT, handleSignal);
+    std::signal(SIGTERM, handleSignal);
+    horndis::RuntimeStatus supervisorStatus;
+    supervisorStatus.state = "starting";
+    supervisorStatus.hostInterface = hostInterface;
+    supervisorStatus.detail = "Preparing the privileged network capability";
+    publishStatus(supervisorStatus);
+
+    horndis::VirtualEthernet ethernet;
+    std::string error;
+    if (!ethernet.open(hostInterface, transportInterface, error)) {
+        logLine(error);
+        supervisorStatus.state = "error";
+        supervisorStatus.detail = error;
+        publishStatus(supervisorStatus);
+        return 1;
+    }
+    const std::string executable = executablePath(error);
+    if (executable.empty()) {
+        logLine(error);
+        return 1;
+    }
+    logLine("privileged network setup complete; waiting for a console user");
+
+    while (gRunning.load()) {
+        const auto identity = currentConsoleUser();
+        if (!identity.has_value()) {
+            supervisorStatus.state = "waiting";
+            supervisorStatus.detail = "Waiting for a macOS console user";
+            publishStatus(supervisorStatus);
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            continue;
+        }
+        if (!prepareRuntimeDirectory(identity.value(), error)) {
+            logLine(error);
+            return 1;
+        }
+        const pid_t agent = spawnAgent(executable,
+                                       ethernet.descriptor(),
+                                       hostInterface,
+                                       transportInterface,
+                                       identity.value(),
+                                       error);
+        if (agent < 0) {
+            logLine(error);
+            return 1;
+        }
+        logLine("started unprivileged data agent as uid " +
+                std::to_string(identity->user) + " (pid " + std::to_string(agent) + ")");
+
+        int childStatus = 0;
+        while (gRunning.load()) {
+            const pid_t result = waitpid(agent, &childStatus, WNOHANG);
+            if (result == agent) {
+                break;
+            }
+            if (result < 0 && errno != EINTR) {
+                logLine("cannot wait for the data agent: " + std::string(std::strerror(errno)));
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        if (!gRunning.load()) {
+            (void)kill(agent, SIGTERM);
+            while (waitpid(agent, &childStatus, 0) < 0 && errno == EINTR) {
+            }
+            break;
+        }
+        const int exitStatus = WIFEXITED(childStatus) ? WEXITSTATUS(childStatus) : -1;
+        logLine("unprivileged data agent exited with status " + std::to_string(exitStatus) +
+                "; restarting");
+        supervisorStatus.state = "error";
+        supervisorStatus.detail = "The unprivileged data agent exited; restarting";
+        publishStatus(supervisorStatus);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+
+    supervisorStatus.state = "stopped";
+    supervisorStatus.detail = "HoRNDIS service is stopped";
+    publishStatus(supervisorStatus);
     return 0;
 }
 
@@ -255,6 +575,17 @@ int manageService(const std::string& action) {
 
 int main(int argc, char* argv[]) {
     @autoreleasepool {
+        if (argc == 5 && std::string(argv[1]) == "agent") {
+            char* end = nullptr;
+            errno = 0;
+            const long descriptor = std::strtol(argv[2], &end, 10);
+            if (errno != 0 || end == argv[2] || *end != '\0' || descriptor < 0 ||
+                descriptor > INT_MAX) {
+                std::cerr << "invalid inherited BPF descriptor\n";
+                return 64;
+            }
+            return runAgent(static_cast<int>(descriptor), argv[3], argv[4]);
+        }
         if (argc == 3 && std::string(argv[1]) == "service") {
             return manageService(argv[2]);
         }

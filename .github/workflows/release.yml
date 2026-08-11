@@ -17,13 +17,21 @@ jobs:
         run: |
           make test
           make clean
-          make ARCH_FLAGS="-arch arm64 -arch x86_64" VERSION="${GITHUB_REF_NAME#v}"
+          make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64" VERSION="${GITHUB_REF_NAME#v}"
+          lipo -verify_arch arm64 build/horndis
+          lipo -verify_arch x86_64 build/horndis
+          lipo -verify_arch arm64 build/horndis-status
+          lipo -verify_arch x86_64 build/horndis-status
           codesign --force --sign - build/horndis
+          codesign --force --deep --sign - build/HoRNDISStatus.app
           file build/horndis
+          file build/horndis-status
       - name: Package
         run: |
           mkdir -p dist/horndis
           cp build/horndis README.md LICENSE dist/horndis/
+          cp -R build/HoRNDISStatus.app dist/horndis/
+          cp -R docs dist/horndis/
           ditto -c -k --keepParent dist/horndis "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip"
           shasum -a 256 "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip" > "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip.sha256"
       - name: Publish GitHub release

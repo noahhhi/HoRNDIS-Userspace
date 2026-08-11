@@ -346,6 +346,50 @@ bool VirtualEthernet::open(const std::string& hostInterface,
     return true;
 }
 
+bool VirtualEthernet::adoptDescriptor(int descriptor,
+                                      const std::string& hostInterface,
+                                      const std::string& transportInterface,
+                                      std::string& error) {
+    close();
+    if (descriptor < 0 || !isSafeFethName(hostInterface) ||
+        !isSafeFethName(transportInterface) || hostInterface == transportInterface) {
+        error = "cannot adopt an invalid Ethernet bridge descriptor";
+        return false;
+    }
+    if (fcntl(descriptor, F_GETFD) < 0 || fcntl(descriptor, F_SETFD, FD_CLOEXEC) != 0) {
+        error = "cannot secure the inherited BPF descriptor: " + std::string(std::strerror(errno));
+        return false;
+    }
+    bpf_ = descriptor;
+    u_int actualBufferSize = 0;
+    if (ioctl(bpf_, BIOCGBLEN, &actualBufferSize) < 0 || actualBufferSize == 0) {
+        error = "cannot query the inherited BPF buffer size: " +
+                std::string(std::strerror(errno));
+        close();
+        return false;
+    }
+    bpfBufferSize_ = actualBufferSize;
+    readBuffer_.resize(bpfBufferSize_);
+    readOffset_ = readBuffer_.size();
+    hostInterface_ = hostInterface;
+    transportInterface_ = transportInterface;
+    return flush(error);
+}
+
+bool VirtualEthernet::flush(std::string& error) {
+    if (bpf_ < 0) {
+        error = "BPF Ethernet bridge is not open";
+        return false;
+    }
+    if (ioctl(bpf_, BIOCFLUSH) < 0) {
+        error = "cannot flush the BPF bridge: " + std::string(std::strerror(errno));
+        return false;
+    }
+    readBuffer_.resize(bpfBufferSize_);
+    readOffset_ = readBuffer_.size();
+    return true;
+}
+
 bool VirtualEthernet::readFrame(std::vector<uint8_t>& frame, bool& timedOut, std::string& error) {
     timedOut = false;
     if (bpf_ < 0) {

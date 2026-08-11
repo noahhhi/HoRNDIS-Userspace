@@ -30,6 +30,16 @@ struct InterfaceRecord {
     std::string serial;
 };
 
+mach_port_t ioMainPort() {
+    if (@available(macOS 12.0, *)) {
+        return kIOMainPortDefault;
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    return kIOMasterPortDefault;
+#pragma clang diagnostic pop
+}
+
 uint32_t numberProperty(io_service_t service, CFStringRef key) {
     CFTypeRef value = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0);
     if (value == nullptr) {
@@ -83,7 +93,7 @@ std::vector<InterfaceRecord> enumerateInterfaces() {
         return records;
     }
     io_iterator_t iterator = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) != kIOReturnSuccess) {
+    if (IOServiceGetMatchingServices(ioMainPort(), matching, &iterator) != kIOReturnSuccess) {
         return records;
     }
     io_service_t service = IO_OBJECT_NULL;
@@ -118,7 +128,7 @@ io_service_t findInterfaceService(const USBDeviceInfo& device, uint8_t interface
         return IO_OBJECT_NULL;
     }
     io_iterator_t iterator = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) != kIOReturnSuccess) {
+    if (IOServiceGetMatchingServices(ioMainPort(), matching, &iterator) != kIOReturnSuccess) {
         return IO_OBJECT_NULL;
     }
     io_service_t result = IO_OBJECT_NULL;
