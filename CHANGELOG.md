@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 - 2026-08-12
+
+- Menu controls now use the system accent color and Apple SF Symbol icon columns consistently.
+- Replaced nested tracking areas with `NSMenuItem.isHighlighted` to prevent stuck hover states.
+- Replaced unsupported in-place menu resizing with the system-animated Details submenu.
+- Refresh traffic, duration, and connection controls every second while the menu is open.
+- Restored the native system switch appearance while retaining the selected accent color.
+- Preserve stable Homebrew executable symlinks in the login LaunchAgent across upgrades.
+
 ## 0.2.0 - 2026-08-11
 
 - Lightweight Swift/AppKit menu bar status app with English and Chinese labels.

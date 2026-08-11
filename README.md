@@ -30,7 +30,7 @@ curl https://ifconfig.me
 
 The launch daemon waits when no phone is connected and reconnects automatically after USB hot-plug or tethering mode changes. Its log is `/var/log/horndis.log`.
 
-The menu bar starts in a compact view showing the Android device, session RX/TX totals, connection duration, a native **USB Tethering** switch, and login-start setting. Choose **Show Details** for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. The switch talks only to a local Unix socket and never asks for an administrator password.
+The menu bar starts in a compact view showing the Android device, session RX/TX totals, connection duration, **USB Tethering**, and login-start switches. Visible values refresh every second. Open the system-animated **Details** submenu for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. The switch talks only to a local Unix socket and never asks for an administrator password.
 
 To remove it:
 

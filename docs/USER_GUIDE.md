@@ -28,15 +28,15 @@ The status item uses Apple SF Symbols and is deliberately compact by default:
 - connected Android device name;
 - received and transmitted bytes for the current USB session;
 - current connection duration;
-- a native USB Tethering switch at the right edge;
-- Launch at Login;
-- Show Details.
+- a USB Tethering switch at the right edge;
+- a Launch at Login switch;
+- the system-animated Details submenu.
 
-The detailed view adds the DHCP address, feth interface, device MAC, service process ID, last service detail, log access, project link, and copyable diagnostics.
+The Details submenu adds the DHCP address, feth interface, device MAC, service process ID, last service detail, log access, project link, and copyable diagnostics.
 
 Turning the **USB Tethering** switch off pauses the RNDIS bridge but keeps the background service available. Turning it on resumes discovery and connects when Android USB tethering is enabled. It cannot turn on Android's tethering setting remotely.
 
-The menu bar app reads `/var/run/horndis/status.json` every two seconds. It does not inspect packet contents or send telemetry. The runtime directory, status file, and control socket are accessible only to the current console user and root. Connection requests go to `/var/run/horndis/control.sock` and also receive a peer-UID check.
+The menu bar app reads `/var/run/horndis/status.json` every two seconds while closed and every second while its menu is visible. It updates the existing labels and native switches in place instead of rebuilding the open menu. It does not inspect packet contents or send telemetry. The runtime directory, status file, and control socket are accessible only to the current console user and root. Connection requests go to `/var/run/horndis/control.sock` and also receive a peer-UID check.
 
 ## Command-line status
 

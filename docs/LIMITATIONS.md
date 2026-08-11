@@ -27,6 +27,7 @@
 
 ## Menu bar status
 
+- Details use a native submenu rather than in-place expansion because Apple does not support resizing a custom menu-item view during menu tracking. This preserves the system's open/close animation and highlight behavior; see [Views in Menu Items](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MenuList/Articles/ViewsInMenuItems.html).
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
 - Status refreshes every two seconds, so very short state transitions may not be visible.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.

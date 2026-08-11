@@ -3,7 +3,7 @@ import AppKit
 import Darwin
 import Foundation
 
-private let horndisStatusVersion = "0.2.0"
+private let horndisStatusVersion = "0.2.1"
 private let statusPath = "/var/run/horndis/status.json"
 private let controlPath = "/var/run/horndis/control.sock"
 private let launchAgentLabel = "io.github.noahhhi.horndis.status"
@@ -43,7 +43,7 @@ private struct RuntimeStatus: Decodable {
     }
 }
 
-private enum DisplayState {
+private enum DisplayState: Equatable {
     case connected
     case connecting
     case waiting
@@ -157,10 +157,6 @@ private enum LaunchAgentManager {
     }
 
     static func executablePath() -> String {
-        if Bundle.main.bundleIdentifier == launchAgentLabel,
-           let bundledExecutable = Bundle.main.executableURL {
-            return bundledExecutable.standardizedFileURL.path
-        }
         let argument = CommandLine.arguments[0]
         let absoluteURL: URL
         if argument.hasPrefix("/") {
@@ -169,7 +165,9 @@ private enum LaunchAgentManager {
             absoluteURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent(argument)
         }
-        return absoluteURL.resolvingSymlinksInPath().standardizedFileURL.path
+        // Preserve stable package-manager symlinks such as /opt/homebrew/bin.
+        // Resolving them would pin the LaunchAgent to a versioned Cellar path.
+        return absoluteURL.standardizedFileURL.path
     }
 
     static func writeConfiguration() throws {
@@ -291,8 +289,6 @@ private enum MenuMetrics {
 
 @MainActor
 private class HighlightableMenuRowView: NSView {
-    private var trackingAreaReference: NSTrackingArea?
-    private(set) var isHovered = false
     var allowsHighlight = true
 
     init() {
@@ -306,37 +302,11 @@ private class HighlightableMenuRowView: NSView {
         nil
     }
 
-    override func updateTrackingAreas() {
-        if let trackingAreaReference {
-            removeTrackingArea(trackingAreaReference)
-        }
-        let area = NSTrackingArea(rect: bounds,
-                                  options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                  owner: self,
-                                  userInfo: nil)
-        addTrackingArea(area)
-        trackingAreaReference = area
-        super.updateTrackingAreas()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        guard allowsHighlight else {
-            return
-        }
-        isHovered = true
-        needsDisplay = true
-        hoverStateDidChange()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        needsDisplay = true
-        hoverStateDidChange()
-    }
-
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if isHovered && allowsHighlight {
+        let highlighted = enclosingMenuItem?.isHighlighted == true && allowsHighlight
+        hoverStateDidChange(highlighted)
+        if highlighted {
             NSColor.controlAccentColor.setFill()
             NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 2),
                          xRadius: 6,
@@ -344,71 +314,47 @@ private class HighlightableMenuRowView: NSView {
         }
     }
 
-    func hoverStateDidChange() {}
-}
-
-@MainActor
-private final class SystemAccentSwitch: NSSwitch {
-    override func draw(_ dirtyRect: NSRect) {
-        guard state == .on else {
-            super.draw(dirtyRect)
-            return
-        }
-
-        let trackRect = bounds.insetBy(dx: 1, dy: 1)
-        let accentColor = isEnabled
-            ? NSColor.controlAccentColor
-            : NSColor.controlAccentColor.withAlphaComponent(0.45)
-        accentColor.setFill()
-        NSBezierPath(roundedRect: trackRect,
-                     xRadius: trackRect.height / 2,
-                     yRadius: trackRect.height / 2).fill()
-
-        let knobInset: CGFloat = 2
-        let knobDiameter = trackRect.height - knobInset * 2
-        let knobRect = NSRect(x: trackRect.maxX - knobInset - knobDiameter,
-                              y: trackRect.minY + knobInset,
-                              width: knobDiameter,
-                              height: knobDiameter)
-        NSGraphicsContext.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
-        shadow.shadowBlurRadius = 1.5
-        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
-        shadow.set()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: knobRect).fill()
-        NSGraphicsContext.restoreGraphicsState()
-    }
+    func hoverStateDidChange(_ highlighted: Bool) {}
 }
 
 @MainActor
 private final class MenuSwitchRowView: HighlightableMenuRowView {
-    let toggle: SystemAccentSwitch
+    let toggle: NSSwitch
+    private let iconView: NSImageView
     private let titleLabel: NSTextField
 
     init(title: String,
+         image: NSImage?,
          state: NSControl.StateValue,
          isEnabled: Bool,
          target: AnyObject,
          action: Selector) {
-        toggle = SystemAccentSwitch()
+        toggle = NSSwitch()
+        iconView = NSImageView()
         titleLabel = NSTextField(labelWithString: title)
         super.init()
 
         allowsHighlight = isEnabled
+        iconView.image = image
+        iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
+        iconView.frame = NSRect(x: MenuMetrics.horizontalInset,
+                                y: floor((MenuMetrics.rowHeight - MenuMetrics.iconSize) / 2),
+                                width: MenuMetrics.iconSize,
+                                height: MenuMetrics.iconSize)
+        addSubview(iconView)
+
         titleLabel.font = NSFont.menuFont(ofSize: 0)
         titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.sizeToFit()
-        titleLabel.frame = NSRect(x: MenuMetrics.horizontalInset,
+        titleLabel.frame = NSRect(x: MenuMetrics.textX,
                                   y: floor((MenuMetrics.rowHeight - titleLabel.frame.height) / 2),
-                                  width: 195,
+                                  width: 160,
                                   height: titleLabel.frame.height)
         titleLabel.autoresizingMask = [.width]
         addSubview(titleLabel)
 
-        toggle.controlSize = .small
+        toggle.controlSize = .regular
         toggle.state = state
         toggle.isEnabled = isEnabled
         toggle.target = target
@@ -429,10 +375,28 @@ private final class MenuSwitchRowView: HighlightableMenuRowView {
         nil
     }
 
-    override func hoverStateDidChange() {
-        titleLabel.textColor = isHovered ? .selectedMenuItemTextColor : (toggle.isEnabled
-            ? .labelColor
-            : .disabledControlTextColor)
+    func update(state: NSControl.StateValue, isEnabled: Bool) {
+        let stateChanged = toggle.state != state
+        let enabledChanged = toggle.isEnabled != isEnabled
+        if stateChanged {
+            toggle.animator().state = state
+        }
+        if enabledChanged {
+            toggle.isEnabled = isEnabled
+            allowsHighlight = isEnabled
+        }
+        if stateChanged || enabledChanged {
+            hoverStateDidChange(enclosingMenuItem?.isHighlighted == true)
+            needsDisplay = true
+        }
+    }
+
+    override func hoverStateDidChange(_ highlighted: Bool) {
+        let color: NSColor = highlighted
+            ? .selectedMenuItemTextColor
+            : (toggle.isEnabled ? .labelColor : .disabledControlTextColor)
+        iconView.contentTintColor = color
+        titleLabel.textColor = color
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -514,11 +478,13 @@ private final class MenuActionRowView: HighlightableMenuRowView {
         nil
     }
 
-    override func hoverStateDidChange() {
-        let color: NSColor = isHovered ? .selectedMenuItemTextColor : .labelColor
+    override func hoverStateDidChange(_ highlighted: Bool) {
+        let color: NSColor = highlighted ? .selectedMenuItemTextColor : .labelColor
         iconView.contentTintColor = color
         titleLabel.textColor = color
-        shortcutLabel?.textColor = isHovered ? .selectedMenuItemTextColor : .tertiaryLabelColor
+        shortcutLabel?.textColor = highlighted
+            ? .selectedMenuItemTextColor
+            : .tertiaryLabelColor
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -530,178 +496,100 @@ private final class MenuActionRowView: HighlightableMenuRowView {
 }
 
 @MainActor
+private final class MenuSubmenuRowView: HighlightableMenuRowView {
+    private let iconView: NSImageView
+    private let titleLabel: NSTextField
+    private let arrowView: NSImageView
+
+    init(title: String, image: NSImage?, arrow: NSImage?) {
+        iconView = NSImageView()
+        titleLabel = NSTextField(labelWithString: title)
+        arrowView = NSImageView()
+        super.init()
+
+        iconView.image = image
+        iconView.contentTintColor = .labelColor
+        iconView.frame = NSRect(x: MenuMetrics.horizontalInset,
+                                y: floor((MenuMetrics.rowHeight - MenuMetrics.iconSize) / 2),
+                                width: MenuMetrics.iconSize,
+                                height: MenuMetrics.iconSize)
+        addSubview(iconView)
+
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.sizeToFit()
+        titleLabel.frame = NSRect(x: MenuMetrics.textX,
+                                  y: floor((MenuMetrics.rowHeight - titleLabel.frame.height) / 2),
+                                  width: MenuMetrics.width - MenuMetrics.textX - 34,
+                                  height: titleLabel.frame.height)
+        titleLabel.autoresizingMask = [.width]
+        addSubview(titleLabel)
+
+        arrowView.image = arrow
+        arrowView.contentTintColor = .tertiaryLabelColor
+        arrowView.frame = NSRect(x: MenuMetrics.width - MenuMetrics.horizontalInset - 7,
+                                 y: floor((MenuMetrics.rowHeight - 12) / 2),
+                                 width: 7,
+                                 height: 12)
+        arrowView.autoresizingMask = [.minXMargin]
+        addSubview(arrowView)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hoverStateDidChange(_ highlighted: Bool) {
+        let color: NSColor = highlighted ? .selectedMenuItemTextColor : .labelColor
+        iconView.contentTintColor = color
+        titleLabel.textColor = color
+        arrowView.contentTintColor = highlighted ? .selectedMenuItemTextColor : .tertiaryLabelColor
+    }
+}
+
+@MainActor
 private final class MenuTextRowView: NSView {
+    private let iconView: NSImageView
+    private let titleLabel: NSTextField
+
     init(title: String, image: NSImage?) {
+        iconView = NSImageView()
+        titleLabel = NSTextField(labelWithString: title)
         super.init(frame: NSRect(x: 0,
                                  y: 0,
                                  width: MenuMetrics.width,
                                  height: MenuMetrics.rowHeight))
 
-        let icon = NSImageView(frame: NSRect(
+        iconView.frame = NSRect(
             x: MenuMetrics.horizontalInset,
             y: floor((MenuMetrics.rowHeight - MenuMetrics.iconSize) / 2),
             width: MenuMetrics.iconSize,
             height: MenuMetrics.iconSize
-        ))
-        icon.image = image
-        icon.contentTintColor = .secondaryLabelColor
-        addSubview(icon)
+        )
+        iconView.image = image
+        iconView.contentTintColor = .secondaryLabelColor
+        addSubview(iconView)
 
-        let label = NSTextField(labelWithString: title)
-        label.font = NSFont.menuFont(ofSize: 0)
-        label.textColor = .secondaryLabelColor
-        label.lineBreakMode = .byTruncatingTail
-        label.sizeToFit()
-        label.frame = NSRect(x: MenuMetrics.textX,
-                             y: floor((MenuMetrics.rowHeight - label.frame.height) / 2),
-                             width: MenuMetrics.width - MenuMetrics.textX -
-                                 MenuMetrics.horizontalInset,
-                             height: label.frame.height)
-        label.autoresizingMask = [.width]
-        addSubview(label)
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-}
-
-private struct DetailRow {
-    enum Kind {
-        case text
-        case action(Selector)
-        case separator
-
-        var isSeparator: Bool {
-            if case .separator = self {
-                return true
-            }
-            return false
-        }
-    }
-
-    let title: String
-    let symbol: String
-    let kind: Kind
-}
-
-@MainActor
-private final class AnimatedDetailsView: NSView {
-    private let collapsedTitle: String
-    private let expandedTitle: String
-    private var headerRow: MenuActionRowView!
-    private let contentView: NSView
-    private let contentHeight: CGFloat
-    private let onToggle: (Bool) -> Void
-    private var expanded: Bool
-
-    init(collapsedTitle: String,
-         expandedTitle: String,
-         expanded: Bool,
-         rows: [DetailRow],
-         target: AnyObject,
-         symbolImage: (String) -> NSImage?,
-         onToggle: @escaping (Bool) -> Void) {
-        self.collapsedTitle = collapsedTitle
-        self.expandedTitle = expandedTitle
-        self.expanded = expanded
-        self.onToggle = onToggle
-
-        let separatorHeight: CGFloat = 10
-        contentHeight = rows.reduce(0) { partial, row in
-            partial + (row.kind.isSeparator ? separatorHeight : MenuMetrics.rowHeight)
-        }
-        contentView = NSView(frame: NSRect(x: 0,
-                                           y: 0,
-                                           width: MenuMetrics.width,
-                                           height: contentHeight))
-        super.init(frame: NSRect(x: 0,
-                                 y: 0,
-                                 width: MenuMetrics.width,
-                                 height: MenuMetrics.rowHeight +
-                                     (expanded ? contentHeight : 0)))
-
-        headerRow = MenuActionRowView(title: expanded ? expandedTitle : collapsedTitle,
-                                      image: symbolImage("info.circle"),
-                                      target: self,
-                                      action: #selector(toggle))
-
-        wantsLayer = true
-        layer?.masksToBounds = true
-
-        headerRow.frame.origin.y = expanded ? contentHeight : 0
-        headerRow.autoresizingMask = [.width]
-        addSubview(headerRow)
-
-        var cursor = contentHeight
-        for row in rows {
-            let height = row.kind.isSeparator ? separatorHeight : MenuMetrics.rowHeight
-            cursor -= height
-
-            switch row.kind {
-            case .separator:
-                let line = NSBox(frame: NSRect(x: 13,
-                                               y: cursor + floor(height / 2),
-                                               width: MenuMetrics.width - 26,
-                                               height: 1))
-                line.boxType = .separator
-                line.autoresizingMask = [.width]
-                contentView.addSubview(line)
-            case .text:
-                let textRow = MenuTextRowView(title: row.title,
-                                              image: symbolImage(row.symbol))
-                textRow.frame.origin.y = cursor
-                textRow.autoresizingMask = [.width]
-                contentView.addSubview(textRow)
-            case let .action(selector):
-                let actionRow = MenuActionRowView(title: row.title,
-                                                  image: symbolImage(row.symbol),
-                                                  target: target,
-                                                  action: selector)
-                actionRow.frame.origin.y = cursor
-                actionRow.autoresizingMask = [.width]
-                contentView.addSubview(actionRow)
-            }
-        }
-
-        contentView.alphaValue = expanded ? 1 : 0
-        addSubview(contentView, positioned: .below, relativeTo: headerRow)
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.textColor = .secondaryLabelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.sizeToFit()
+        titleLabel.frame = NSRect(x: MenuMetrics.textX,
+                                  y: floor((MenuMetrics.rowHeight - titleLabel.frame.height) / 2),
+                                  width: MenuMetrics.width - MenuMetrics.textX -
+                                      MenuMetrics.horizontalInset,
+                                  height: titleLabel.frame.height)
+        titleLabel.autoresizingMask = [.width]
+        addSubview(titleLabel)
     }
 
     required init?(coder: NSCoder) {
         nil
     }
 
-    @objc private func toggle() {
-        setExpanded(!expanded, animated: true)
-    }
-
-    func setExpanded(_ newValue: Bool, animated: Bool) {
-        guard newValue != expanded else {
-            return
-        }
-        expanded = newValue
-        onToggle(newValue)
-
-        let targetHeight = MenuMetrics.rowHeight + (newValue ? contentHeight : 0)
-        let targetHeaderOrigin = NSPoint(x: headerRow.frame.origin.x,
-                                         y: newValue ? contentHeight : 0)
-        headerRow.title = newValue ? expandedTitle : collapsedTitle
-
-        guard animated else {
-            frame.size.height = targetHeight
-            headerRow.frame.origin = targetHeaderOrigin
-            contentView.alphaValue = newValue ? 1 : 0
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            context.allowsImplicitAnimation = true
-            animator().setFrameSize(NSSize(width: frame.width, height: targetHeight))
-            headerRow.animator().setFrameOrigin(targetHeaderOrigin)
-            contentView.animator().alphaValue = newValue ? 1 : 0
-        }
+    func update(title: String) {
+        titleLabel.stringValue = title
     }
 }
 
@@ -711,20 +599,39 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     private var timer: Timer?
     private var snapshot = readSnapshot()
     private var interfaceError: String?
-    private var showDetails = UserDefaults.standard.bool(forKey: "showDetails")
-    private var menuIsOpen = false
     private var pendingConnectionState: Bool?
     private var pendingConnectionStartedAt: Date?
-    private weak var detailsView: AnimatedDetailsView?
+    private var menuIsOpen = false
+    private var shouldRefreshOnClosedTick = false
+    private var summaryRowViews: [MenuTextRowView] = []
+    private weak var connectionRowView: MenuSwitchRowView?
+    private weak var launchAtLoginRowView: MenuSwitchRowView?
+    private var displayedStatusState: DisplayState?
+    private var displayedStatusMessage: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         refresh()
         updateMenu()
-        timer = Timer.scheduledTimer(timeInterval: 2,
-                                     target: self,
-                                     selector: #selector(refresh),
-                                     userInfo: nil,
-                                     repeats: true)
+        let refreshTimer = Timer(timeInterval: 1,
+                                 target: self,
+                                 selector: #selector(timerTick),
+                                 userInfo: nil,
+                                 repeats: true)
+        refreshTimer.tolerance = 0.1
+        RunLoop.main.add(refreshTimer, forMode: .default)
+        RunLoop.main.add(refreshTimer, forMode: .eventTracking)
+        timer = refreshTimer
+    }
+
+    @objc private func timerTick() {
+        if menuIsOpen {
+            refresh()
+            return
+        }
+        shouldRefreshOnClosedTick.toggle()
+        if shouldRefreshOnClosedTick {
+            refresh()
+        }
     }
 
     @objc private func refresh() {
@@ -742,6 +649,9 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             }
         }
         updateStatusItem()
+        if menuIsOpen {
+            updateVisibleMenuContent()
+        }
     }
 
     private func updateStatusItem() {
@@ -752,6 +662,9 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             state = pendingConnectionState ? .connecting : .paused
         } else {
             state = snapshot.state
+        }
+        guard displayedStatusState != state || displayedStatusMessage != snapshot.message else {
+            return
         }
         switch state {
         case .connected:
@@ -779,6 +692,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         statusItem.button?.image = image
         statusItem.button?.contentTintColor = color
         statusItem.button?.toolTip = "HoRNDIS — \(snapshot.message)"
+        displayedStatusState = state
+        displayedStatusMessage = snapshot.message
     }
 
     private func symbolImage(_ name: String) -> NSImage? {
@@ -798,16 +713,67 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         return item
     }
 
+    private func summaryContent() -> [(title: String, symbol: String)] {
+        var content = [(snapshot.message, "personalhotspot")]
+        if let runtime = snapshot.runtime {
+            let device = runtime.device.isEmpty ? localized("No device", "未连接设备") : runtime.device
+            let received = ByteCountFormatter.string(fromByteCount: Int64(runtime.receivedBytes),
+                                                     countStyle: .binary)
+            let transmitted = ByteCountFormatter.string(fromByteCount: Int64(runtime.transmittedBytes),
+                                                        countStyle: .binary)
+            let interval = runtime.connectedSince > 0
+                ? max(0, Date().timeIntervalSince1970 - Double(runtime.connectedSince))
+                : 0
+            let formatter = DateComponentsFormatter()
+            formatter.allowedUnits = [.day, .hour, .minute, .second]
+            formatter.unitsStyle = .abbreviated
+            let duration = runtime.connectedSince > 0 ? formatter.string(from: interval) ?? "—" : "—"
+            content.append(("\(localized("Device", "设备")): \(device)", "iphone"))
+            content.append(("↓ \(received)    ↑ \(transmitted)", "arrow.up.arrow.down"))
+            content.append(("\(localized("Connected", "连接时长")): \(duration)", "clock"))
+        } else if let address = snapshot.ipAddress {
+            content.append(("\(localized("Device", "设备")): Android", "iphone"))
+            content.append(("IP: \(address)", "globe"))
+            content.append(("\(localized("Connected", "连接时长")): —", "clock"))
+        } else {
+            content.append(("\(localized("Device", "设备")): \(localized("No device", "未连接设备"))",
+                            "iphone"))
+            content.append(("↓ 0 bytes    ↑ 0 bytes", "arrow.up.arrow.down"))
+            content.append(("\(localized("Connected", "连接时长")): —", "clock"))
+        }
+        return content
+    }
+
+    private func updateVisibleMenuContent() {
+        let content = summaryContent()
+        guard content.count == summaryRowViews.count else {
+            return
+        }
+        for (view, row) in zip(summaryRowViews, content) {
+            view.update(title: row.title)
+        }
+
+        let serviceEnabled = snapshot.runtime != nil &&
+            snapshot.state != .paused && snapshot.state != .stopped
+        let displayedState = pendingConnectionState ?? serviceEnabled
+        connectionRowView?.update(state: displayedState ? .on : .off,
+                                  isEnabled: snapshot.runtime?.controlAvailable == true)
+        launchAtLoginRowView?.update(state: LaunchAgentManager.isInstalled ? .on : .off,
+                                     isEnabled: true)
+    }
+
     private func connectionSwitchItem() -> NSMenuItem {
         let item = NSMenuItem()
         let serviceEnabled = snapshot.runtime != nil &&
             snapshot.state != .paused && snapshot.state != .stopped
         let displayedState = pendingConnectionState ?? serviceEnabled
         let row = MenuSwitchRowView(title: localized("USB Tethering", "USB 网络共享"),
+                                    image: symbolImage("personalhotspot"),
                                     state: displayedState ? .on : .off,
                                     isEnabled: snapshot.runtime?.controlAvailable == true,
                                     target: self,
                                     action: #selector(setConnection(_:)))
+        connectionRowView = row
 
         item.view = row
         item.toolTip = row.toggle.isEnabled
@@ -819,11 +785,14 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
 
     private func launchAtLoginSwitchItem() -> NSMenuItem {
         let item = NSMenuItem()
-        item.view = MenuSwitchRowView(title: localized("Launch at Login", "登录时启动"),
-                                      state: LaunchAgentManager.isInstalled ? .on : .off,
-                                      isEnabled: true,
-                                      target: self,
-                                      action: #selector(setLaunchAtLogin(_:)))
+        let row = MenuSwitchRowView(title: localized("Launch at Login", "登录时启动"),
+                                    image: symbolImage("power"),
+                                    state: LaunchAgentManager.isInstalled ? .on : .off,
+                                    isEnabled: true,
+                                    target: self,
+                                    action: #selector(setLaunchAtLogin(_:)))
+        launchAtLoginRowView = row
+        item.view = row
         return item
     }
 
@@ -841,99 +810,68 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         return item
     }
 
+    private func detailsMenuItem() -> NSMenuItem {
+        let title = localized("Details", "详细信息")
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.view = MenuSubmenuRowView(title: title,
+                                       image: symbolImage("info.circle"),
+                                       arrow: symbolImage("chevron.right"))
+
+        let submenu = NSMenu(title: title)
+        submenu.delegate = self
+        submenu.minimumWidth = MenuMetrics.width
+        if let runtime = snapshot.runtime {
+            let interface = runtime.hostInterface.isEmpty ? "feth99" : runtime.hostInterface
+            let address = snapshot.ipAddress ?? localized("configuring…", "配置中…")
+            submenu.addItem(disabledItem("IP: \(address)", symbol: "globe"))
+            submenu.addItem(disabledItem("\(localized("Interface", "接口")): \(interface)",
+                                          symbol: "network"))
+            if !runtime.deviceAddress.isEmpty {
+                submenu.addItem(disabledItem("MAC: \(runtime.deviceAddress)", symbol: "number"))
+            }
+            submenu.addItem(disabledItem("PID: \(runtime.processID)", symbol: "gearshape"))
+            if !runtime.detail.isEmpty {
+                submenu.addItem(disabledItem(runtime.detail, symbol: "text.bubble"))
+            }
+        }
+        if let interfaceError {
+            submenu.addItem(disabledItem(interfaceError, symbol: "exclamationmark.triangle"))
+        }
+
+        submenu.addItem(.separator())
+        submenu.addItem(actionItem(localized("Copy Diagnostics", "复制诊断信息"),
+                                    symbol: "doc.on.doc",
+                                    action: #selector(copyDiagnostics)))
+        submenu.addItem(actionItem(localized("Open Service Log", "打开服务日志"),
+                                    symbol: "doc.text",
+                                    action: #selector(openLog)))
+        submenu.addItem(actionItem(localized("Open Project Page", "打开项目主页"),
+                                    symbol: "safari",
+                                    action: #selector(openProject)))
+        item.submenu = submenu
+        return item
+    }
+
     private func updateMenu(_ existingMenu: NSMenu? = nil) {
         let menu = existingMenu ?? NSMenu()
         menu.removeAllItems()
         menu.delegate = self
+        menu.autoenablesItems = false
         menu.minimumWidth = 286
-        menu.addItem(disabledItem(snapshot.message, symbol: "personalhotspot"))
-
-        if let runtime = snapshot.runtime {
-            let device = runtime.device.isEmpty ? localized("No device", "未连接设备") : runtime.device
-            menu.addItem(disabledItem("\(localized("Device", "设备")): \(device)", symbol: "iphone"))
-            let received = ByteCountFormatter.string(fromByteCount: Int64(runtime.receivedBytes),
-                                                     countStyle: .binary)
-            let transmitted = ByteCountFormatter.string(fromByteCount: Int64(runtime.transmittedBytes),
-                                                        countStyle: .binary)
-            menu.addItem(disabledItem("↓ \(received)    ↑ \(transmitted)",
-                                      symbol: "arrow.up.arrow.down"))
-            let interval = runtime.connectedSince > 0
-                ? max(0, Date().timeIntervalSince1970 - Double(runtime.connectedSince))
-                : 0
-            let formatter = DateComponentsFormatter()
-            formatter.allowedUnits = [.day, .hour, .minute, .second]
-            formatter.unitsStyle = .abbreviated
-            let duration = runtime.connectedSince > 0 ? formatter.string(from: interval) ?? "—" : "—"
-            menu.addItem(disabledItem("\(localized("Connected", "连接时长")): \(duration)",
-                                      symbol: "clock"))
-        } else if let address = snapshot.ipAddress {
-            menu.addItem(disabledItem("\(localized("Device", "设备")): Android",
-                                      symbol: "iphone"))
-            menu.addItem(disabledItem("IP: \(address)", symbol: "globe"))
-        } else {
-            menu.addItem(disabledItem("\(localized("Device", "设备")): \(localized("No device", "未连接设备"))",
-                                      symbol: "iphone"))
-            menu.addItem(disabledItem("↓ 0 bytes    ↑ 0 bytes", symbol: "arrow.up.arrow.down"))
-            menu.addItem(disabledItem("\(localized("Connected", "连接时长")): —", symbol: "clock"))
+        summaryRowViews = []
+        for row in summaryContent() {
+            let item = disabledItem(row.title, symbol: row.symbol)
+            if let view = item.view as? MenuTextRowView {
+                summaryRowViews.append(view)
+            }
+            menu.addItem(item)
         }
 
         menu.addItem(.separator())
         menu.addItem(connectionSwitchItem())
         menu.addItem(launchAtLoginSwitchItem())
 
-        var detailRows: [DetailRow] = [.init(title: "", symbol: "", kind: .separator)]
-        if let runtime = snapshot.runtime {
-            let interface = runtime.hostInterface.isEmpty ? "feth99" : runtime.hostInterface
-            let address = snapshot.ipAddress ?? localized("configuring…", "配置中…")
-            detailRows.append(.init(title: "IP: \(address)", symbol: "globe", kind: .text))
-            detailRows.append(.init(title: "\(localized("Interface", "接口")): \(interface)",
-                                    symbol: "network",
-                                    kind: .text))
-            if !runtime.deviceAddress.isEmpty {
-                detailRows.append(.init(title: "MAC: \(runtime.deviceAddress)",
-                                        symbol: "number",
-                                        kind: .text))
-            }
-            detailRows.append(.init(title: "PID: \(runtime.processID)",
-                                    symbol: "gearshape",
-                                    kind: .text))
-            if !runtime.detail.isEmpty {
-                detailRows.append(.init(title: runtime.detail,
-                                        symbol: "text.bubble",
-                                        kind: .text))
-            }
-        }
-        if let interfaceError {
-            detailRows.append(.init(title: interfaceError,
-                                    symbol: "exclamationmark.triangle",
-                                    kind: .text))
-        }
-        detailRows.append(.init(title: "", symbol: "", kind: .separator))
-        detailRows.append(.init(title: localized("Copy Diagnostics", "复制诊断信息"),
-                                symbol: "doc.on.doc",
-                                kind: .action(#selector(copyDiagnostics))))
-        detailRows.append(.init(title: localized("Open Service Log", "打开服务日志"),
-                                symbol: "doc.text",
-                                kind: .action(#selector(openLog))))
-        detailRows.append(.init(title: localized("Open Project Page", "打开项目主页"),
-                                symbol: "safari",
-                                kind: .action(#selector(openProject))))
-
-        let detailItem = NSMenuItem()
-        let detailView = AnimatedDetailsView(
-            collapsedTitle: localized("Show Details", "显示详细信息"),
-            expandedTitle: localized("Hide Details", "收起详细信息"),
-            expanded: showDetails,
-            rows: detailRows,
-            target: self,
-            symbolImage: symbolImage
-        ) { [weak self] expanded in
-            self?.showDetails = expanded
-            UserDefaults.standard.set(expanded, forKey: "showDetails")
-        }
-        detailsView = detailView
-        detailItem.view = detailView
-        menu.addItem(detailItem)
+        menu.addItem(detailsMenuItem())
 
         menu.addItem(.separator())
         menu.addItem(actionItem(localized("Quit HoRNDIS Status", "退出 HoRNDIS 状态栏"),
@@ -955,11 +893,9 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             interfaceError = nil
         } catch {
             interfaceError = error.localizedDescription
-            showDetails = true
             pendingConnectionState = nil
             pendingConnectionStartedAt = nil
             sender.state = requestedState ? .off : .on
-            detailsView?.setExpanded(true, animated: true)
             updateStatusItem()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -968,6 +904,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     }
 
     @objc private func copyDiagnostics() {
+        statusItem.menu?.cancelTracking()
         var lines = [
             "HoRNDIS Status \(horndisStatusVersion)",
             "State: \(snapshot.runtime?.state ?? "unavailable")",
@@ -989,6 +926,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     }
 
     @objc private func openLog() {
+        statusItem.menu?.cancelTracking()
         NSWorkspace.shared.open(URL(fileURLWithPath: "/var/log/horndis.log"))
     }
 
@@ -1004,23 +942,38 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         } catch {
             interfaceError = error.localizedDescription
             sender.state = shouldInstall ? .off : .on
-            showDetails = true
-            detailsView?.setExpanded(true, animated: true)
         }
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
-        menuIsOpen = true
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === statusItem.menu else {
+            return
+        }
         snapshot = readSnapshot()
         updateStatusItem()
         updateMenu(menu)
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === statusItem.menu {
+            menuIsOpen = true
+        }
+    }
+
     func menuDidClose(_ menu: NSMenu) {
-        menuIsOpen = false
+        if menu === statusItem.menu {
+            menuIsOpen = false
+        }
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        for candidate in menu.items where candidate.view != nil {
+            candidate.view?.needsDisplay = true
+        }
     }
 
     @objc private func openProject() {
+        statusItem.menu?.cancelTracking()
         NSWorkspace.shared.open(projectURL)
     }
 
