@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 - 2026-08-12
+
+- Avoid SwiftUI's external `@State` macro for action-row hover tracking so source builds work with the standalone macOS 27 Command Line Tools as well as full Xcode.
+- Validate the complete Homebrew source build, application bundle installation, and Formula test path against the published release archive.
+
 ## 0.2.1 - 2026-08-12
 
 - Menu controls now use the system accent color and Apple SF Symbol icon columns consistently.
