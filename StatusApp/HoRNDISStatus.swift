@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import SwiftUI
 
-private let horndisStatusVersion = "0.2.1"
+private let horndisStatusVersion = "0.2.2"
 private let statusPath = "/var/run/horndis/status.json"
 private let controlPath = "/var/run/horndis/control.sock"
 private let launchAgentLabel = "io.github.noahhhi.horndis.status"
@@ -495,12 +495,27 @@ private struct StatusPopoverSwitchRow: View {
     }
 }
 
+private final class StatusPopoverHoverModel: ObservableObject {
+    @Published var isHovered = false
+}
+
 private struct StatusPopoverActionRow: View {
     let title: String
     let symbol: String
     var shortcut: String?
     let action: () -> Void
-    @State private var isHovered = false
+    @StateObject private var hoverModel: StatusPopoverHoverModel
+
+    init(title: String,
+         symbol: String,
+         shortcut: String? = nil,
+         action: @escaping () -> Void) {
+        self.title = title
+        self.symbol = symbol
+        self.shortcut = shortcut
+        self.action = action
+        _hoverModel = StateObject(wrappedValue: StatusPopoverHoverModel())
+    }
 
     var body: some View {
         Button(action: action) {
@@ -512,26 +527,26 @@ private struct StatusPopoverActionRow: View {
                 Spacer(minLength: 8)
                 if let shortcut {
                     Text(shortcut)
-                        .foregroundColor(isHovered
+                        .foregroundColor(hoverModel.isHovered
                             ? Color(NSColor.selectedMenuItemTextColor).opacity(0.75)
                             : Color(NSColor.tertiaryLabelColor))
                 }
             }
             .padding(.horizontal, 8)
             .frame(height: 32)
-            .foregroundColor(isHovered
+            .foregroundColor(hoverModel.isHovered
                 ? Color(NSColor.selectedMenuItemTextColor)
                 : Color.primary)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovered ? Color.accentColor : .clear)
+                    .fill(hoverModel.isHovered ? Color.accentColor : .clear)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 4)
         .onHover { hovering in
-            isHovered = hovering
+            hoverModel.isHovered = hovering
         }
     }
 }
