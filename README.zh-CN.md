@@ -7,7 +7,7 @@
 
 面向现代 macOS 的 Android USB 网络共享工具，无需受限 entitlement。它保持系统完整性保护（SIP）开启，并把完整的 RNDIS 数据路径移出内核。
 
-[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md)
+[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
 
 > **预览版本：** RNDIS 已在 Pixel 4 XL 上实现并测试。工具也能识别 CDC-ECM 和 CDC-NCM 设备，以便未来在保留 macOS 网络后端的情况下增加新的传输协议。
 
@@ -37,7 +37,7 @@ curl https://ifconfig.me
 
 没有连接手机时，LaunchDaemon 会等待；USB 热插拔或共享模式变化后会自动重新连接。服务日志位于 `/var/log/horndis.log`。
 
-原生菜单显示 Android 设备、当前会话上下行总流量、连接时长、持久授权状态、**USB 网络共享**开关和登录时启动开关。若特权服务尚未安装，会额外显示“**授权并安装…**”，点击后由标准 macOS 管理员认证对话框执行固定的内置安装命令。菜单打开时可见数据每秒刷新一次。打开原生“**详细信息**”子菜单可查看 IP 地址、接口、设备 MAC、服务 PID、日志和可复制诊断信息。正常使用开关只与本地 Unix socket 通信，不再要求管理员密码。
+原生菜单显示 Android 设备、当前会话上下行总流量、连接时长、持久授权状态、**USB 网络共享**开关和登录时启动开关。若特权服务尚未安装，会额外显示“**授权并安装…**”，点击后由标准 macOS 管理员认证对话框执行固定的内置安装命令。菜单打开时可见数据每秒刷新一次。展开“**详细信息**”可查看 IP 地址、接口、设备 MAC、服务 PID、日志和可复制诊断信息。正常使用开关只与本地 Unix socket 通信，不再要求管理员密码。界面使用原生 window 风格 `MenuBarExtra`、mini switch、Disclosure 动画、SF Symbols、动态系统颜色及统一行几何；实现与视觉验收规则记录在[菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)中。
 
 卸载：
 

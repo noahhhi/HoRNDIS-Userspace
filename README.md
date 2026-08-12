@@ -7,7 +7,7 @@
 
 Entitlement-free Android USB tethering for modern macOS. It keeps System Integrity Protection enabled and moves the entire RNDIS data path out of the kernel.
 
-[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md)
+[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md) · [Menu UI contract](docs/MENU_UI_GUIDELINES.md)
 
 > **Preview:** RNDIS is implemented and tested with a Pixel 4 XL. CDC-ECM and CDC-NCM devices are detected so future transports can be added without replacing the macOS network backend.
 
@@ -37,7 +37,7 @@ curl https://ifconfig.me
 
 The launch daemon waits when no phone is connected and reconnects automatically after USB hot-plug or tethering mode changes. Its log is `/var/log/horndis.log`.
 
-The native menu shows the Android device, session RX/TX totals, connection duration, persistent authorization state, **USB Tethering**, and login-start switches. If the privileged service is missing, an **Authorize and Install…** row invokes the standard macOS administrator authentication dialog for the fixed bundled installer command. Visible values refresh every second. Open the native **Details** submenu for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. Normal switches talk only to a local Unix socket and never ask for an administrator password.
+The native menu shows the Android device, session RX/TX totals, connection duration, persistent authorization state, **USB Tethering**, and login-start switches. If the privileged service is missing, an **Authorize and Install…** row invokes the standard macOS administrator authentication dialog for the fixed bundled installer command. Visible values refresh every second. Expand **Details** for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. Normal switches talk only to a local Unix socket and never ask for an administrator password. The UI uses a native window-style `MenuBarExtra`, mini switches, disclosure animation, SF Symbols, dynamic colors, and shared row geometry; its implementation and visual acceptance rules are documented in the [menu UI contract](docs/MENU_UI_GUIDELINES.md).
 
 To remove it:
 
