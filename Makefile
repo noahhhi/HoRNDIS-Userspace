@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.1
+VERSION ?= 0.3.2
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -26,14 +26,19 @@ STATUS_APP_BINARY := $(STATUS_APP)/Contents/MacOS/horndis-status
 STATUS_APP_ICON := $(STATUS_APP)/Contents/Resources/HoRNDISStatus.icns
 STATUS_APP_NETWORK_TOOL := $(STATUS_APP)/Contents/Resources/horndis
 STATUS_APP_UNINSTALLER := $(STATUS_APP)/Contents/Resources/horndis-uninstall
+STATUS_APP_LOCALIZATIONS := $(STATUS_APP)/Contents/Resources/en.lproj/InfoPlist.strings \
+	$(STATUS_APP)/Contents/Resources/zh-Hans.lproj/InfoPlist.strings
 STATUS_ICON_GENERATOR := $(BUILD_DIR)/generate-horndis-icon
 STATUS_ICONSET := $(BUILD_DIR)/HoRNDISStatus.iconset
 STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
 STATUS_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-status-,$(STATUS_ARCHS))
 TEST_TARGET := $(BUILD_DIR)/rndis-protocol-tests
+STATUS_SWITCH_PROBE := $(BUILD_DIR)/status-switch-appearance-probe
+APP_LANGUAGE_PROBE := $(BUILD_DIR)/app-language-probe
+MENU_UI_CONTRACT_TEST := $(BUILD_DIR)/menu-ui-contract-tests
 MANPAGE := Documentation/horndis.1
 
-.PHONY: all clean install test
+.PHONY: all clean install test test-ui
 
 all: $(TARGET) $(STATUS_TARGET)
 
@@ -47,7 +52,7 @@ $(BUILD_DIR)/%.o: %
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift
-	@mkdir -p $(@D)
+	@mkdir -p "$(@D)"
 	$(SWIFTC) -parse-as-library -O -whole-module-optimization -target $*-apple-macosx11.0 \
 		-framework AppKit -framework Foundation $< -o $@
 
@@ -68,7 +73,11 @@ $(STATUS_APP_UNINSTALLER): Packaging/horndis-uninstall
 	@mkdir -p "$(STATUS_APP)/Contents/Resources"
 	install -m 0755 "$<" "$@"
 
-$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(STATUS_ICON) $(STATUS_APP_NETWORK_TOOL) $(STATUS_APP_UNINSTALLER) StatusApp/Info.plist
+$(STATUS_APP)/Contents/Resources/%.lproj/InfoPlist.strings: StatusApp/%.lproj/InfoPlist.strings
+	@mkdir -p "$(@D)"
+	install -m 0644 "$<" "$@"
+
+$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(STATUS_ICON) $(STATUS_APP_NETWORK_TOOL) $(STATUS_APP_UNINSTALLER) $(STATUS_APP_LOCALIZATIONS) StatusApp/Info.plist
 	@mkdir -p "$(STATUS_APP)/Contents/MacOS" "$(STATUS_APP)/Contents/Resources"
 	install -m 0644 StatusApp/Info.plist "$(STATUS_APP)/Contents/Info.plist"
 	install -m 0644 "$(STATUS_ICON)" "$(STATUS_APP_ICON)"
@@ -82,14 +91,36 @@ $(TEST_TARGET): Tests/RNDISProtocolTests.cpp Sources/RNDISProtocol.cpp Sources/R
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) Tests/RNDISProtocolTests.cpp Sources/RNDISProtocol.cpp -o $@
 
-test: $(TEST_TARGET) $(STATUS_TARGET)
+$(STATUS_SWITCH_PROBE): Tests/StatusSwitchAppearanceProbe.swift
+	@mkdir -p $(@D)
+	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx13.0 \
+		-framework AppKit -framework SwiftUI $< -o $@
+
+$(APP_LANGUAGE_PROBE): Tests/AppLanguageProbe.swift
+	@mkdir -p $(@D)
+	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
+		-framework Foundation $< -o $@
+
+$(MENU_UI_CONTRACT_TEST): Tests/MenuUIContractTests.swift
+	@mkdir -p $(@D)
+	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
+		-framework Foundation $< -o $@
+
+test: $(TEST_TARGET) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
 	$(TEST_TARGET)
+	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift
+	$(STATUS_SWITCH_PROBE) "$(BUILD_DIR)/status-switch-appearance.png"
+	$(APP_LANGUAGE_PROBE) "$(STATUS_APP)"
 	$(STATUS_APP_BINARY) --version
 	test -x "$(STATUS_APP_NETWORK_TOOL)"
 	test -x "$(STATUS_APP_UNINSTALLER)"
 	cmp -s "$(TARGET)" "$(STATUS_APP_NETWORK_TOOL)"
 	$(CODESIGN) --verify --strict --verbose=2 "$(TARGET)"
 	$(CODESIGN) --verify --deep --strict --verbose=2 "$(STATUS_APP)"
+
+test-ui: $(MENU_UI_CONTRACT_TEST)
+	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift
+	@echo "Complete the installed-app checklist in docs/MENU_UI_GUIDELINES.md"
 
 install: $(TARGET) $(STATUS_TARGET) $(MANPAGE)
 	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/man/man1

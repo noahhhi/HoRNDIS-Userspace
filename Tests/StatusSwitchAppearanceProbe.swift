@@ -9,13 +9,18 @@ struct StatusSwitchAppearanceProbe {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
-        let content = Toggle("", isOn: .constant(true))
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .tint(Color(nsColor: .controlAccentColor))
-            .controlSize(.mini)
-            .fixedSize()
-            .padding(8)
+        // The production MenuBarExtra supplies an active control environment.
+        // Render the same native switch without a custom tint or drawing code.
+        let content = VStack {
+            Toggle("", isOn: .constant(true))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .environment(\.controlActiveState, .key)
+                .environment(\.appearsActive, true)
+                .controlSize(.mini)
+                .fixedSize()
+                .padding(8)
+        }
         let hostingView = NSHostingView(rootView: content)
         hostingView.frame.size = hostingView.fittingSize
         hostingView.layoutSubtreeIfNeeded()

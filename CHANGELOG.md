@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 - 2026-08-13
+
+- Restore the native SwiftUI `MenuBarExtra` interaction baseline, including
+  draggable mini switches, local Details disclosure animation, active accent
+  colors, and foreground-app focus preservation.
+- Unify every menu row's icon column, text start, height, selection inset, and
+  24-point highlight geometry; match the current system selection curve while
+  leaving the compositor-owned window frame to macOS.
+- Add English and Simplified Chinese app localizations, menu UI regression
+  tests, and documented visual acceptance rules for future changes.
+
 ## 0.3.1 - 2026-08-12
 
 - Restore the selected system accent color on the native switch controls without replacing their system material or animation.
