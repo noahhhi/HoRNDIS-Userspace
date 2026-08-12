@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Replace the custom window-style popover and all manual corner clipping with AppKit's native `NSStatusItem` and `NSMenu`, letting macOS own the exact menu frame, corner geometry, spacing, highlights, dark mode, and submenu animations.
+- Keep the compact native `NSSwitch` controls for USB tethering and login startup while the surrounding status, action, and Details rows use standard menu items.
+- Install the menu bar app at `/Applications/HoRNDIS Status.app` from both the release package and Homebrew.
+- Replace the source-built Homebrew Formula with a prebuilt universal package Cask so users do not need Xcode or Command Line Tools.
+- Consolidate installation, menu control, status, diagnostics, and command help under the single `horndis` command, with a complete `man horndis` page.
+
 ## 0.2.3 - 2026-08-12
 
 - Use Apple's `DisclosureGroupStyle` pattern with a native, faster smooth spring for matching expand and collapse animations.

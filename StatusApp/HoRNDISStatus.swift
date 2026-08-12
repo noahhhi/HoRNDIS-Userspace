@@ -2,9 +2,10 @@
 import AppKit
 import Darwin
 import Foundation
-import SwiftUI
 
-private let horndisStatusVersion = "0.2.3"
+private let horndisStatusVersion = Bundle.main.object(
+    forInfoDictionaryKey: "CFBundleShortVersionString"
+) as? String ?? "development"
 private let statusPath = "/var/run/horndis/status.json"
 private let controlPath = "/var/run/horndis/control.sock"
 private let launchAgentLabel = "io.github.noahhhi.horndis.status"
@@ -12,12 +13,6 @@ private let privilegedHelperPath = "/Library/PrivilegedHelperTools/io.github.noa
 private let launchDaemonPath = "/Library/LaunchDaemons/io.github.noahhhi.horndis.plist"
 private let launchDaemonLabel = "io.github.noahhhi.horndis"
 private let projectURL = URL(string: "https://github.com/noahhhi/HoRNDIS-Userspace")!
-private let statusPopoverRowHeight: CGFloat = 32
-private let statusPopoverSelectionHorizontalInset: CGFloat = 4
-private let statusPopoverSelectionVerticalInset: CGFloat = 4
-private let statusPopoverSelectionContentHorizontalInset: CGFloat = 8
-private let statusPopoverSelectionMinimumRadius: CGFloat = 8
-private let statusPopoverContainerRadius: CGFloat = 16
 
 private func localized(_ english: String, _ chinese: String) -> String {
     Locale.preferredLanguages.first?.hasPrefix("zh") == true ? chinese : english
@@ -83,31 +78,16 @@ private enum ServiceAuthorizationManager {
     }
 
     private static func sourceToolURL() -> URL? {
-        var candidates: [URL] = []
-        if let resources = Bundle.main.resourceURL {
-            candidates.append(resources.appendingPathComponent("horndis"))
+        guard let resources = Bundle.main.resourceURL else {
+            return nil
         }
-
-        let invokedURL: URL
-        if CommandLine.arguments[0].hasPrefix("/") {
-            invokedURL = URL(fileURLWithPath: CommandLine.arguments[0])
-        } else {
-            invokedURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent(CommandLine.arguments[0])
-        }
-        candidates.append(invokedURL.deletingLastPathComponent().appendingPathComponent("horndis"))
-        candidates.append(URL(fileURLWithPath: "/opt/homebrew/bin/horndis"))
-        candidates.append(URL(fileURLWithPath: "/usr/local/bin/horndis"))
-
-        for candidate in candidates {
-            let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath()
-            var information = stat()
-            if Darwin.lstat(resolved.path, &information) == 0,
-               (information.st_mode & S_IFMT) == S_IFREG,
-               (information.st_mode & S_IXUSR) != 0,
-               (information.st_mode & (S_IWGRP | S_IWOTH)) == 0 {
-                return resolved
-            }
+        let tool = resources.appendingPathComponent("horndis").standardizedFileURL
+        var information = stat()
+        if Darwin.lstat(tool.path, &information) == 0,
+           (information.st_mode & S_IFMT) == S_IFREG,
+           (information.st_mode & S_IXUSR) != 0,
+           (information.st_mode & (S_IWGRP | S_IWOTH)) == 0 {
+            return tool
         }
         return nil
     }
@@ -306,8 +286,7 @@ private enum LaunchAgentManager {
             absoluteURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent(argument)
         }
-        // Preserve stable package-manager symlinks such as /opt/homebrew/bin.
-        // Resolving them would pin the LaunchAgent to a versioned Cellar path.
+        // Preserve the installed application path instead of resolving bundle aliases.
         return absoluteURL.standardizedFileURL.path
     }
 
@@ -334,7 +313,9 @@ private enum LaunchAgentManager {
         }
     }
 
-    static func runLaunchctl(_ arguments: [String], allowFailure: Bool = false) throws {
+    @discardableResult
+    static func runLaunchctl(_ arguments: [String],
+                             allowFailure: Bool = false) throws -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         process.arguments = arguments
@@ -348,6 +329,59 @@ private enum LaunchAgentManager {
                           userInfo: [NSLocalizedDescriptionKey:
                               "launchctl exited with status \(process.terminationStatus)"])
         }
+        return process.terminationStatus
+    }
+
+    static var isLoaded: Bool {
+        let target = "gui/\(getuid())/\(launchAgentLabel)"
+        return (try? runLaunchctl(["print", target], allowFailure: true)) == 0
+    }
+
+    static var isRunning: Bool {
+        NSRunningApplication.runningApplications(
+            withBundleIdentifier: "io.github.noahhhi.horndis.status"
+        ).contains { $0.processIdentifier != getpid() }
+    }
+
+    static func openOnce() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", Bundle.main.bundleURL.path]
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw NSError(domain: "HoRNDISStatus",
+                          code: Int(process.terminationStatus),
+                          userInfo: [NSLocalizedDescriptionKey:
+                              "open exited with status \(process.terminationStatus)"])
+        }
+    }
+
+    static func start() throws {
+        guard isInstalled else {
+            try openOnce()
+            return
+        }
+        let target = "gui/\(getuid())/\(launchAgentLabel)"
+        if !isLoaded {
+            try runLaunchctl(["bootstrap", "gui/\(getuid())", plistURL.path])
+        }
+        try runLaunchctl(["kickstart", target])
+    }
+
+    static func stop() throws {
+        let target = "gui/\(getuid())/\(launchAgentLabel)"
+        try runLaunchctl(["bootout", target], allowFailure: true)
+        for application in NSRunningApplication.runningApplications(
+            withBundleIdentifier: "io.github.noahhhi.horndis.status"
+        ) where application.processIdentifier != getpid() {
+            application.terminate()
+        }
+    }
+
+    static func restart() throws {
+        try stop()
+        try start()
     }
 
     static func installAndStart() throws {
@@ -419,372 +453,104 @@ private enum ControlClient {
     }
 }
 
-private struct StatusPopoverRow: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let symbol: String
+private enum NativeMenuMetrics {
+    static let width: CGFloat = 274
+    static let rowHeight: CGFloat = 24
+    static let horizontalInset: CGFloat = 12
+    static let iconSize: CGFloat = 16
+    static let labelX: CGFloat = 38
 }
 
 @MainActor
-private final class StatusPopoverModel: ObservableObject {
-    @Published var statusSymbol = "network.slash"
-    @Published var summaryRows: [StatusPopoverRow] = []
-    @Published var detailRows: [StatusPopoverRow] = []
-    @Published var authorizationRequired = false
-    @Published var connectionOn = false
-    @Published var connectionEnabled = false
-    @Published var launchAtLoginOn = false
-    @Published var detailsExpanded = false
-
-    var setConnection: (Bool) -> Void = { _ in }
-    var setLaunchAtLogin: (Bool) -> Void = { _ in }
-    var authorize: () -> Void = {}
-    var copyDiagnostics: () -> Void = {}
-    var openLog: () -> Void = {}
-    var openProject: () -> Void = {}
-    var quit: () -> Void = {}
-    var didAppear: () -> Void = {}
-    var didDisappear: () -> Void = {}
-}
-
-private struct StatusPopoverInfoRow: View {
-    let row: StatusPopoverRow
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: row.symbol)
-                .frame(width: 16)
-                .foregroundColor(.secondary)
-            Text(row.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundColor(.secondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: statusPopoverRowHeight)
-    }
-}
-
-private struct StatusPopoverSwitchRow: View {
-    let title: String
-    let symbol: String
-    @Binding var isOn: Bool
-    let isEnabled: Bool
-
-    private var toggle: some View {
-        Toggle(title, isOn: $isOn)
-            .labelsHidden()
-            .controlSize(.mini)
-            .disabled(!isEnabled)
-    }
-
-    @ViewBuilder
-    private var systemToggle: some View {
-        if #available(macOS 12.0, *) {
-            toggle.toggleStyle(.switch)
-        } else {
-            toggle.toggleStyle(SwitchToggleStyle(tint: Color(NSColor.controlAccentColor)))
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .frame(width: 16)
-            Text(title)
-            Spacer(minLength: 8)
-            systemToggle
-        }
-        .padding(.horizontal, 12)
-        .frame(height: statusPopoverRowHeight)
-    }
-}
-
-private final class StatusPopoverHoverModel: ObservableObject {
-    @Published var isHovered = false
-}
-
-private struct StatusPopoverSelectionBackground: View {
-    let isSelected: Bool
-
-    private var compatibilityBackground: some View {
-        RoundedRectangle(
-            cornerRadius: statusPopoverSelectionMinimumRadius,
-            style: .continuous
-        )
-        .fill(isSelected ? Color.accentColor : .clear)
-        .padding(.vertical, statusPopoverSelectionVerticalInset)
-    }
-
-    @ViewBuilder
-    var body: some View {
-#if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            ConcentricRectangle(
-                corners: .concentric(
-                    minimum: .fixed(statusPopoverSelectionMinimumRadius)
-                )
-            )
-            .fill(isSelected ? Color.accentColor : .clear)
-            .padding(.vertical, statusPopoverSelectionVerticalInset)
-        } else {
-            compatibilityBackground
-        }
-#else
-        compatibilityBackground
-#endif
-    }
-}
-
-private struct StatusPopoverActionRow: View {
-    let title: String
-    let symbol: String
-    var shortcut: String?
-    let action: () -> Void
-    @StateObject private var hoverModel: StatusPopoverHoverModel
+private final class NativeMenuSwitchRow: NSView {
+    let toggle = NSSwitch()
+    private let iconView = NSImageView()
+    private let titleLabel: NSTextField
 
     init(title: String,
-         symbol: String,
-         shortcut: String? = nil,
-         action: @escaping () -> Void) {
-        self.title = title
-        self.symbol = symbol
-        self.shortcut = shortcut
-        self.action = action
-        _hoverModel = StateObject(wrappedValue: StatusPopoverHoverModel())
+         image: NSImage?,
+         state: NSControl.StateValue,
+         isEnabled: Bool,
+         target: AnyObject,
+         action: Selector) {
+        titleLabel = NSTextField(labelWithString: title)
+        super.init(frame: NSRect(x: 0,
+                                 y: 0,
+                                 width: NativeMenuMetrics.width,
+                                 height: NativeMenuMetrics.rowHeight))
+
+        iconView.image = image
+        iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
+        iconView.frame = NSRect(x: NativeMenuMetrics.horizontalInset,
+                                y: floor((NativeMenuMetrics.rowHeight -
+                                    NativeMenuMetrics.iconSize) / 2),
+                                width: NativeMenuMetrics.iconSize,
+                                height: NativeMenuMetrics.iconSize)
+        addSubview(iconView)
+
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.frame = NSRect(x: NativeMenuMetrics.labelX,
+                                  y: 0,
+                                  width: 170,
+                                  height: NativeMenuMetrics.rowHeight)
+        titleLabel.alignment = .left
+        titleLabel.maximumNumberOfLines = 1
+        addSubview(titleLabel)
+
+        toggle.controlSize = .mini
+        toggle.state = state
+        toggle.isEnabled = isEnabled
+        toggle.target = target
+        toggle.action = action
+        toggle.sizeToFit()
+        toggle.frame.origin = NSPoint(
+            x: NativeMenuMetrics.width - NativeMenuMetrics.horizontalInset - toggle.frame.width,
+            y: floor((NativeMenuMetrics.rowHeight - toggle.frame.height) / 2)
+        )
+        toggle.autoresizingMask = [.minXMargin]
+        addSubview(toggle)
+
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(title)
     }
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .frame(width: 16)
-                Text(title)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if let shortcut {
-                    Text(shortcut)
-                        .foregroundColor(hoverModel.isHovered
-                            ? Color(NSColor.selectedMenuItemTextColor).opacity(0.75)
-                            : Color(NSColor.tertiaryLabelColor))
-                }
-            }
-            .padding(.horizontal, statusPopoverSelectionContentHorizontalInset)
-            .frame(height: statusPopoverRowHeight)
-            .foregroundColor(hoverModel.isHovered
-                ? Color(NSColor.selectedMenuItemTextColor)
-                : Color.primary)
-            .background(StatusPopoverSelectionBackground(
-                isSelected: hoverModel.isHovered
-            ))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, statusPopoverSelectionHorizontalInset)
-        .onHover { hovering in
-            hoverModel.isHovered = hovering
-        }
+    required init?(coder: NSCoder) {
+        nil
     }
-}
 
-@available(macOS 13.0, *)
-private struct StatusPopoverDisclosureStyle: DisclosureGroupStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                if #available(macOS 14.0, *) {
-                    withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
-                        configuration.isExpanded.toggle()
-                    }
-                } else {
-                    withAnimation(.spring().speed(1.6)) {
-                        configuration.isExpanded.toggle()
-                    }
-                }
-            } label: {
-                configuration.label
-            }
-            .buttonStyle(.plain)
-
-            if configuration.isExpanded {
-                configuration.content
-            }
+    func update(state: NSControl.StateValue, isEnabled: Bool) {
+        if toggle.state != state {
+            toggle.state = state
         }
-        .clipped()
+        toggle.isEnabled = isEnabled
+        iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
+        titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
     }
-}
 
-private struct StatusPopoverDisclosureLabel: View {
-    let expanded: Bool
-    @StateObject private var hoverModel = StatusPopoverHoverModel()
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "info.circle")
-                .frame(width: 16)
-            Text(localized("Details", "详细信息"))
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(hoverModel.isHovered
-                    ? Color(NSColor.selectedMenuItemTextColor).opacity(0.8)
-                    : .secondary)
-                .rotationEffect(.degrees(expanded ? 90 : 0))
-        }
-        .padding(.horizontal, statusPopoverSelectionContentHorizontalInset)
-        .frame(height: statusPopoverRowHeight)
-        .foregroundColor(hoverModel.isHovered
-            ? Color(NSColor.selectedMenuItemTextColor)
-            : Color.primary)
-        .background(StatusPopoverSelectionBackground(
-            isSelected: hoverModel.isHovered
-        ))
-        .contentShape(Rectangle())
-        .padding(.horizontal, statusPopoverSelectionHorizontalInset)
-        .frame(height: statusPopoverRowHeight)
-        .onHover { hovering in
-            hoverModel.isHovered = hovering
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if toggle.isEnabled && bounds.contains(point) && !toggle.frame.contains(point) {
+            toggle.performClick(self)
         }
     }
 }
 
-private struct StatusPopoverContainerShapeModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(macOS 12.0, *) {
-            content.containerShape(RoundedRectangle(
-                cornerRadius: statusPopoverContainerRadius,
-                style: .continuous
-            ))
-        } else {
-            content
-        }
-    }
-}
-
-private struct StatusPopoverContent: View {
-    @ObservedObject var model: StatusPopoverModel
-
-    private var connectionBinding: Binding<Bool> {
-        Binding(get: { model.connectionOn },
-                set: { model.setConnection($0) })
-    }
-
-    private var launchAtLoginBinding: Binding<Bool> {
-        Binding(get: { model.launchAtLoginOn },
-                set: { model.setLaunchAtLogin($0) })
-    }
-
-    private var legacyDetailsBinding: Binding<Bool> {
-        Binding(get: { model.detailsExpanded },
-                set: { expanded in
-                    withAnimation(.spring().speed(1.6)) {
-                        model.detailsExpanded = expanded
-                    }
-                })
-    }
-
-    private var detailsContent: some View {
-        VStack(spacing: 0) {
-            Divider().padding(.horizontal, 10)
-            ForEach(model.detailRows) { row in
-                StatusPopoverInfoRow(row: row)
-            }
-            StatusPopoverActionRow(title: localized("Copy Diagnostics",
-                                                    "复制诊断信息"),
-                                   symbol: "doc.on.doc",
-                                   action: model.copyDiagnostics)
-            StatusPopoverActionRow(title: localized("Open Service Log",
-                                                    "打开服务日志"),
-                                   symbol: "doc.text",
-                                   action: model.openLog)
-            StatusPopoverActionRow(title: localized("Open Project Page",
-                                                    "打开项目主页"),
-                                   symbol: "safari",
-                                   action: model.openProject)
-        }
-    }
-
-    private var detailsLabel: some View {
-        StatusPopoverDisclosureLabel(expanded: model.detailsExpanded)
-    }
-
-    @ViewBuilder
-    private var detailsSection: some View {
-        if #available(macOS 13.0, *) {
-            DisclosureGroup(isExpanded: $model.detailsExpanded) {
-                detailsContent
-            } label: {
-                detailsLabel
-            }
-            .disclosureGroupStyle(StatusPopoverDisclosureStyle())
-        } else {
-            DisclosureGroup(isExpanded: legacyDetailsBinding) {
-                detailsContent
-            } label: {
-                detailsLabel
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(model.summaryRows) { row in
-                StatusPopoverInfoRow(row: row)
-            }
-
-            if model.authorizationRequired {
-                StatusPopoverActionRow(title: localized("Authorize and Install…",
-                                                        "授权并安装…"),
-                                       symbol: "lock.open",
-                                       action: model.authorize)
-            }
-
-            Divider().padding(.horizontal, 10)
-
-            StatusPopoverSwitchRow(title: localized("USB Tethering", "USB 网络共享"),
-                                   symbol: "personalhotspot",
-                                   isOn: connectionBinding,
-                                   isEnabled: model.connectionEnabled)
-            StatusPopoverSwitchRow(title: localized("Launch at Login", "登录时启动"),
-                                   symbol: "power",
-                                   isOn: launchAtLoginBinding,
-                                   isEnabled: true)
-
-            detailsSection
-
-            Divider().padding(.horizontal, 10)
-
-            StatusPopoverActionRow(title: localized("Quit HoRNDIS Status",
-                                                    "退出 HoRNDIS 状态栏"),
-                                   symbol: "xmark.circle",
-                                   shortcut: "⌘Q",
-                                   action: model.quit)
-        }
-        .padding(.top, 6)
-        .frame(width: 286)
-        .fixedSize(horizontal: false, vertical: true)
-        .modifier(StatusPopoverContainerShapeModifier())
-        .onAppear(perform: model.didAppear)
-        .onDisappear(perform: model.didDisappear)
-    }
-}
-
-private struct StatusPopoverLabel: View {
-    @ObservedObject var model: StatusPopoverModel
-
-    var body: some View {
-        Image(systemName: model.statusSymbol)
-            .accessibilityLabel("HoRNDIS")
-    }
+private enum NativeMenuTag: Int {
+    case status = 100
+    case device
+    case traffic
+    case duration
+    case authorization
+    case connection
+    case launchAtLogin
+    case details
 }
 
 @MainActor
-private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
-    let popoverModel = StatusPopoverModel()
-    private var legacyStatusItem: NSStatusItem?
-    private let legacyPopover = NSPopover()
+private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var timer: Timer?
     private var snapshot = readSnapshot()
     private var authorizationState = ServiceAuthorizationManager.state
@@ -798,17 +564,13 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
 
     override init() {
         super.init()
-        configurePopoverActions()
         updateStatusItem()
-        updatePopoverModel()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         refresh()
-        if #unavailable(macOS 13.0) {
-            configureLegacyPopover()
-        }
+        configureNativeMenu()
         let refreshTimer = Timer(timeInterval: 1,
                                  target: self,
                                  selector: #selector(timerTick),
@@ -818,53 +580,6 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
         RunLoop.main.add(refreshTimer, forMode: .default)
         RunLoop.main.add(refreshTimer, forMode: .eventTracking)
         timer = refreshTimer
-    }
-
-    private func configurePopoverActions() {
-        popoverModel.setConnection = { [weak self] enabled in
-            self?.setConnectionEnabled(enabled)
-        }
-        popoverModel.setLaunchAtLogin = { [weak self] enabled in
-            self?.setLaunchAtLoginEnabled(enabled)
-        }
-        popoverModel.authorize = { [weak self] in self?.authorizeAndInstall() }
-        popoverModel.copyDiagnostics = { [weak self] in self?.copyDiagnostics() }
-        popoverModel.openLog = { [weak self] in self?.openLog() }
-        popoverModel.openProject = { [weak self] in self?.openProject() }
-        popoverModel.quit = { [weak self] in self?.quit() }
-        popoverModel.didAppear = { [weak self] in
-            self?.menuIsOpen = true
-        }
-        popoverModel.didDisappear = { [weak self] in
-            self?.menuIsOpen = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                guard let self, !self.menuIsOpen else {
-                    return
-                }
-                self.popoverModel.detailsExpanded = false
-            }
-        }
-    }
-
-    private func configureLegacyPopover() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        legacyStatusItem = item
-        item.button?.target = self
-        item.button?.action = #selector(toggleLegacyPopover(_:))
-        legacyPopover.behavior = .transient
-        legacyPopover.animates = true
-        legacyPopover.contentViewController = NSHostingController(
-            rootView: StatusPopoverContent(model: popoverModel)
-        )
-        updateStatusItem()
-    }
-
-    @objc private func toggleLegacyPopover(_ sender: NSStatusBarButton) {
-        if legacyPopover.isShown {
-            legacyPopover.performClose(sender)
-        } else {
-            legacyPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        }
     }
 
     @objc private func timerTick() {
@@ -894,7 +609,9 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         updateStatusItem()
-        updatePopoverModel()
+        if menuIsOpen {
+            updateNativeVisibleContent()
+        }
     }
 
     private func updateStatusItem() {
@@ -921,10 +638,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
         case .stopped, .unavailable:
             symbol = "network.slash"
         }
-        if statusChanged && popoverModel.statusSymbol != symbol {
-            popoverModel.statusSymbol = symbol
-        }
-        if let button = legacyStatusItem?.button,
+        if let button = statusItem.button,
            statusChanged || button.image == nil {
             let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "HoRNDIS")
                 ?? NSImage(systemSymbolName: "network", accessibilityDescription: "HoRNDIS")
@@ -973,62 +687,204 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
         return content
     }
 
-    private func updatePopoverModel() {
-        let summary = summaryContent().enumerated().map { index, row in
-            StatusPopoverRow(id: "summary-\(index)", title: row.title, symbol: row.symbol)
-        }
-        if popoverModel.summaryRows != summary {
-            popoverModel.summaryRows = summary
-        }
+    private func nativeSymbol(_ name: String) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let image = (NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil))?
+            .withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        image?.size = NSSize(width: 16, height: 16)
+        return image
+    }
 
-        var details: [StatusPopoverRow] = []
+    private func nativeInfoItem(tag: NativeMenuTag) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.tag = tag.rawValue
+        item.isEnabled = false
+        return item
+    }
+
+    private func nativeActionItem(_ title: String,
+                                  symbol: String,
+                                  action: Selector,
+                                  keyEquivalent: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = self
+        item.image = nativeSymbol(symbol)
+        return item
+    }
+
+    private func nativeSwitchItem(tag: NativeMenuTag,
+                                  title: String,
+                                  symbol: String,
+                                  state: NSControl.StateValue,
+                                  isEnabled: Bool,
+                                  action: Selector) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.tag = tag.rawValue
+        item.isEnabled = true
+        item.view = NativeMenuSwitchRow(title: title,
+                                        image: nativeSymbol(symbol),
+                                        state: state,
+                                        isEnabled: isEnabled,
+                                        target: self,
+                                        action: action)
+        return item
+    }
+
+    private func configureNativeMenu() {
+        let menu = NSMenu(title: "HoRNDIS")
+        menu.delegate = self
+        menu.autoenablesItems = false
+        menu.minimumWidth = NativeMenuMetrics.width
+
+        menu.addItem(nativeInfoItem(tag: .status))
+        menu.addItem(nativeInfoItem(tag: .device))
+        menu.addItem(nativeInfoItem(tag: .traffic))
+        menu.addItem(nativeInfoItem(tag: .duration))
+        menu.addItem(nativeInfoItem(tag: .authorization))
+
+        let authorize = nativeActionItem(localized("Authorize and Install…", "授权并安装…"),
+                                         symbol: "lock.open",
+                                         action: #selector(authorizeAndInstall))
+        authorize.tag = 109
+        menu.addItem(authorize)
+        menu.addItem(.separator())
+
+        menu.addItem(nativeSwitchItem(tag: .connection,
+                                      title: localized("USB Tethering", "USB 网络共享"),
+                                      symbol: "personalhotspot",
+                                      state: .off,
+                                      isEnabled: false,
+                                      action: #selector(nativeSetConnection(_:))))
+        menu.addItem(nativeSwitchItem(tag: .launchAtLogin,
+                                      title: localized("Launch at Login", "登录时启动"),
+                                      symbol: "power",
+                                      state: .off,
+                                      isEnabled: true,
+                                      action: #selector(nativeSetLaunchAtLogin(_:))))
+
+        let details = NSMenuItem(title: localized("Details", "详细信息"),
+                                 action: nil,
+                                 keyEquivalent: "")
+        details.tag = NativeMenuTag.details.rawValue
+        details.image = nativeSymbol("info.circle")
+        details.submenu = NSMenu(title: localized("Details", "详细信息"))
+        details.submenu?.delegate = self
+        menu.addItem(details)
+
+        menu.addItem(.separator())
+        menu.addItem(nativeActionItem(localized("Quit HoRNDIS Status", "退出 HoRNDIS 状态栏"),
+                                      symbol: "xmark.circle",
+                                      action: #selector(quit),
+                                      keyEquivalent: "q"))
+
+        statusItem.menu = menu
+        updateNativeVisibleContent()
+        rebuildNativeDetailsMenu()
+    }
+
+    private func rebuildNativeDetailsMenu() {
+        guard let item = statusItem.menu?.item(withTag: NativeMenuTag.details.rawValue),
+              let submenu = item.submenu else {
+            return
+        }
+        submenu.removeAllItems()
         if let runtime = snapshot.runtime {
             let interface = runtime.hostInterface.isEmpty ? "feth99" : runtime.hostInterface
             let address = snapshot.ipAddress ?? localized("configuring…", "配置中…")
-            details.append(StatusPopoverRow(id: "ip", title: "IP: \(address)", symbol: "globe"))
-            details.append(StatusPopoverRow(id: "interface",
-                                            title: "\(localized("Interface", "接口")): \(interface)",
-                                            symbol: "network"))
-            if !runtime.deviceAddress.isEmpty {
-                details.append(StatusPopoverRow(id: "mac",
-                                                title: "MAC: \(runtime.deviceAddress)",
-                                                symbol: "number"))
-            }
-            details.append(StatusPopoverRow(id: "pid",
-                                            title: "PID: \(runtime.processID)",
-                                            symbol: "gearshape"))
-            if !runtime.detail.isEmpty {
-                details.append(StatusPopoverRow(id: "detail",
-                                                title: runtime.detail,
-                                                symbol: "text.bubble"))
+            let rows = [
+                ("IP: \(address)", "globe"),
+                ("\(localized("Interface", "接口")): \(interface)", "network"),
+                (runtime.deviceAddress.isEmpty ? nil : "MAC: \(runtime.deviceAddress)", "number"),
+                ("PID: \(runtime.processID)", "gearshape"),
+                (runtime.detail.isEmpty ? nil : runtime.detail, "text.bubble"),
+            ]
+            for (title, symbol) in rows {
+                guard let title else { continue }
+                let detail = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                detail.image = nativeSymbol(symbol)
+                detail.isEnabled = false
+                submenu.addItem(detail)
             }
         }
         if let interfaceError {
-            details.append(StatusPopoverRow(id: "error",
-                                            title: interfaceError,
-                                            symbol: "exclamationmark.triangle"))
+            let error = NSMenuItem(title: interfaceError, action: nil, keyEquivalent: "")
+            error.image = nativeSymbol("exclamationmark.triangle")
+            error.isEnabled = false
+            submenu.addItem(error)
         }
-        if popoverModel.detailRows != details {
-            popoverModel.detailRows = details
+        if !submenu.items.isEmpty {
+            submenu.addItem(.separator())
         }
+        submenu.addItem(nativeActionItem(localized("Copy Diagnostics", "复制诊断信息"),
+                                         symbol: "doc.on.doc",
+                                         action: #selector(copyDiagnostics)))
+        submenu.addItem(nativeActionItem(localized("Open Service Log", "打开服务日志"),
+                                         symbol: "doc.text",
+                                         action: #selector(openLog)))
+        submenu.addItem(nativeActionItem(localized("Open Project Page", "打开项目主页"),
+                                         symbol: "safari",
+                                         action: #selector(openProject)))
+    }
+
+    private func updateNativeVisibleContent() {
+        guard let menu = statusItem.menu else { return }
+        let tags: [NativeMenuTag] = [.status, .device, .traffic, .duration, .authorization]
+        for (tag, content) in zip(tags, summaryContent()) {
+            guard let item = menu.item(withTag: tag.rawValue) else { continue }
+            item.title = content.title
+            item.image = nativeSymbol(content.symbol)
+        }
+        menu.item(withTag: 109)?.isHidden = authorizationState != .required
 
         let serviceEnabled = snapshot.runtime != nil &&
             snapshot.state != .paused && snapshot.state != .stopped
         let displayedState = pendingConnectionState ?? serviceEnabled
-        if popoverModel.connectionOn != displayedState {
-            popoverModel.connectionOn = displayedState
-        }
         let connectionAvailable = snapshot.runtime?.controlAvailable == true
-        if popoverModel.connectionEnabled != connectionAvailable {
-            popoverModel.connectionEnabled = connectionAvailable
+        (menu.item(withTag: NativeMenuTag.connection.rawValue)?.view as? NativeMenuSwitchRow)?
+            .update(state: displayedState ? .on : .off, isEnabled: connectionAvailable)
+        (menu.item(withTag: NativeMenuTag.launchAtLogin.rawValue)?.view as? NativeMenuSwitchRow)?
+            .update(state: LaunchAgentManager.isInstalled ? .on : .off, isEnabled: true)
+    }
+
+    @objc private func nativeSetConnection(_ sender: NSSwitch) {
+        let requested = sender.state == .on
+        if !setConnectionEnabled(requested) {
+            sender.state = requested ? .off : .on
         }
-        let launchAtLogin = LaunchAgentManager.isInstalled
-        if popoverModel.launchAtLoginOn != launchAtLogin {
-            popoverModel.launchAtLoginOn = launchAtLogin
+        updateNativeVisibleContent()
+    }
+
+    @objc private func nativeSetLaunchAtLogin(_ sender: NSSwitch) {
+        let requested = sender.state == .on
+        if !setLaunchAtLoginEnabled(requested) {
+            sender.state = requested ? .off : .on
         }
-        let authorizationRequired = authorizationState == .required
-        if popoverModel.authorizationRequired != authorizationRequired {
-            popoverModel.authorizationRequired = authorizationRequired
+        updateNativeVisibleContent()
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        snapshot = readSnapshot()
+        authorizationState = ServiceAuthorizationManager.state
+        updateStatusItem()
+        if menu === statusItem.menu {
+            updateNativeVisibleContent()
+        } else {
+            rebuildNativeDetailsMenu()
+        }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === statusItem.menu {
+            menuIsOpen = true
+            refresh()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === statusItem.menu {
+            menuIsOpen = false
         }
     }
 
@@ -1037,7 +893,6 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
         pendingConnectionState = requestedState
         pendingConnectionStartedAt = Date()
         updateStatusItem()
-        updatePopoverModel()
         do {
             try ControlClient.send(requestedState ? "connect\n" : "disconnect\n")
             interfaceError = nil
@@ -1046,7 +901,6 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
             pendingConnectionState = nil
             pendingConnectionStartedAt = nil
             updateStatusItem()
-            updatePopoverModel()
             return false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -1092,10 +946,9 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate {
             interfaceError = nil
         } catch {
             interfaceError = error.localizedDescription
-            updatePopoverModel()
             return false
         }
-        updatePopoverModel()
+        updateNativeVisibleContent()
         return true
     }
 
@@ -1160,6 +1013,18 @@ private func handleCommandLine() -> Bool {
         case "install":
             try LaunchAgentManager.installAndStart()
             print("HoRNDIS menu bar status installed and started.")
+        case "start", "open":
+            try LaunchAgentManager.start()
+            print("HoRNDIS menu bar status started.")
+        case "stop", "quit":
+            try LaunchAgentManager.stop()
+            print("HoRNDIS menu bar status stopped; login startup remains configured.")
+        case "restart":
+            try LaunchAgentManager.restart()
+            print("HoRNDIS menu bar status restarted.")
+        case "status":
+            print("HoRNDIS menu bar status: \(LaunchAgentManager.isRunning ? "running" : "stopped")")
+            print("Launch at login: \(LaunchAgentManager.isInstalled ? "enabled" : "disabled")")
         case "uninstall":
             try LaunchAgentManager.uninstall()
             print("HoRNDIS menu bar status stopped and removed.")
@@ -1169,6 +1034,10 @@ private func handleCommandLine() -> Bool {
             print("""
             Usage:
               horndis-status             Run the menu bar status app
+              horndis-status start       Open the app without changing login startup
+              horndis-status stop        Quit the app but preserve login startup
+              horndis-status restart     Restart the app
+              horndis-status status      Show app and login-startup status
               horndis-status install     Start now and at login (no sudo)
               horndis-status uninstall   Remove the login item
               horndis-status --version
@@ -1184,36 +1053,18 @@ private func handleCommandLine() -> Bool {
     return true
 }
 
-@available(macOS 13.0, *)
-private struct ModernHoRNDISStatusApplication: App {
-    @NSApplicationDelegateAdaptor(StatusAppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        MenuBarExtra {
-            StatusPopoverContent(model: appDelegate.popoverModel)
-        } label: {
-            StatusPopoverLabel(model: appDelegate.popoverModel)
-        }
-        .menuBarExtraStyle(.window)
-    }
-}
-
 @main
 private enum HoRNDISStatusEntryPoint {
     static func main() {
         if handleCommandLine() {
             return
         }
-        if #available(macOS 13.0, *) {
-            ModernHoRNDISStatusApplication.main()
-        } else {
-            MainActor.assumeIsolated {
-                let application = NSApplication.shared
-                let delegate = StatusAppDelegate()
-                application.delegate = delegate
-                application.setActivationPolicy(.accessory)
-                application.run()
-            }
+        MainActor.assumeIsolated {
+            let application = NSApplication.shared
+            let delegate = StatusAppDelegate()
+            application.delegate = delegate
+            application.setActivationPolicy(.accessory)
+            application.run()
         }
     }
 }

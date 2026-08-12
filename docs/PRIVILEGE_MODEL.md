@@ -35,7 +35,7 @@ The runtime directory is assigned to the current console user after privileged s
 
 ## Installation lifecycle
 
-`horndis-install` delegates exactly one operation to `sudo horndis service install`; the GitHub Release package performs the same operation inside the administrator-authorized Installer process. That privileged step:
+`horndis install` delegates exactly one operation to `sudo horndis service install`; the Homebrew Cask and GitHub Release package perform the same operation inside the administrator-authorized Installer process. That privileged step:
 
 1. copy the exact executable to `/Library/PrivilegedHelperTools/io.github.noahhhi.horndis`;
 2. set root ownership and non-writable executable permissions;

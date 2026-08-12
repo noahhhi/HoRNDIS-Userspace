@@ -3,7 +3,7 @@
 set -euo pipefail
 
 network_tool=/usr/local/bin/horndis
-status_tool=/usr/local/bin/horndis-status
+status_tool="/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status"
 
 "${network_tool}" service install
 

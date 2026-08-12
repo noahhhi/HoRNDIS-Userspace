@@ -3,8 +3,8 @@
 ## Platform and distribution
 
 - macOS 11 is the minimum deployment target. The current end-to-end reference machine is Apple Silicon on macOS 27; older macOS and Intel builds are produced and compile-checked but cannot all be hardware-tested for every release.
-- Homebrew builds native binaries for the installing Mac and carries both the network service and menu bar app. Homebrew does not elevate privileges during Formula installation; the explicit `horndis-install` command performs the one-time authorized activation.
-- GitHub Releases contain a universal arm64/x86_64 ZIP and a unified `.pkg`. This personal project cannot sign and notarize the package without a paid Developer ID, so Homebrew source installation is preferred.
+- Homebrew installs the prebuilt universal `.pkg` through a Cask; the Cask itself does not compile on the target Mac and can be installed without developer tools. Homebrew still lists Xcode Command Line Tools or Xcode as a requirement for a fully supported Homebrew installation. The release `.pkg` has no such requirement.
+- GitHub Releases contain a universal arm64/x86_64 ZIP and the same unified `.pkg` used by the Cask. This personal project cannot sign and notarize the package without a paid Developer ID.
 
 ## USB protocols and devices
 
@@ -31,4 +31,4 @@
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
 - Status refreshes every two seconds while the menu is closed and every second while it is visible, so very short transitions can still be missed.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.
-- Quitting or crashing the menu bar process does not stop tethering. A missing or invalid privileged installation can be repaired with the menu's one-time **Authorize and Install…** action or the `horndis-install` command; both still require normal macOS administrator authentication.
+- Quitting or crashing the menu bar process does not stop tethering. Reopen it from `/Applications` or run `horndis start`. A missing or invalid privileged installation can be repaired with the menu's one-time **Authorize and Install…** action or `horndis install`; both still require normal macOS administrator authentication.
