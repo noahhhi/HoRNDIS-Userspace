@@ -16,7 +16,10 @@ jobs:
       - name: Verify CLI
         run: |
           ./build/horndis --version
-          ./build/horndis-status --version
+          ./build/horndis --help
+          ./build/horndis help status
+          ./build/HoRNDISStatus.app/Contents/MacOS/horndis-status --version
+          mandoc -Tlint Documentation/horndis.1
       - name: Verify universal Apple Silicon and Intel build
         run: |
           make clean
@@ -25,10 +28,22 @@ jobs:
           lipo -archs build/horndis | grep -q x86_64
           lipo -archs build/horndis-status | grep -q arm64
           lipo -archs build/horndis-status | grep -q x86_64
+          codesign --verify --strict --verbose=2 build/horndis
+          codesign --verify --deep --strict --verbose=2 build/HoRNDISStatus.app
       - name: Verify app icon and installer package
         run: |
           test "$(plutil -extract CFBundleIconFile raw build/HoRNDISStatus.app/Contents/Info.plist)" = "HoRNDISStatus"
           test -s build/HoRNDISStatus.app/Contents/Resources/HoRNDISStatus.icns
           Scripts/build-package 0.0.0 build/HoRNDIS-Userspace-test.pkg
           pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "usr/local/bin/horndis"
+          ! pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "usr/local/bin/horndis-status"
+          pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "usr/local/share/man/man1/horndis.1"
           pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "Applications/HoRNDIS Status.app/Contents/Resources/HoRNDISStatus.icns"
+      - name: Verify staged installation layout
+        run: |
+          stage="${RUNNER_TEMP}/horndis-stage"
+          make install DESTDIR="$stage"
+          test -x "$stage/usr/local/bin/horndis"
+          test ! -e "$stage/usr/local/bin/horndis-status"
+          test -x "$stage/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status"
+          test -f "$stage/usr/local/share/man/man1/horndis.1"

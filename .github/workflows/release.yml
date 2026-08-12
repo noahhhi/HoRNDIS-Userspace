@@ -29,9 +29,9 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist/horndis
-          cp build/horndis Scripts/horndis-install README.md README.zh-CN.md LICENSE dist/horndis/
+          cp build/horndis README.md README.zh-CN.md LICENSE dist/horndis/
           cp -R -X build/HoRNDISStatus.app dist/horndis/
-          ln -s "HoRNDISStatus.app/Contents/MacOS/horndis-status" dist/horndis/horndis-status
+          cp -R Documentation dist/horndis/
           cp -R docs dist/horndis/
           ditto -c -k --keepParent dist/horndis "dist/horndis-${GITHUB_REF_NAME}-macos-universal.zip"
 

@@ -1,0 +1,25 @@
+#!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+
+if (( EUID != 0 )); then
+    print -u2 "The package uninstaller must run as root."
+    exit 1
+fi
+
+status_tool="/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status"
+console_user=$(/usr/bin/stat -f '%Su' /dev/console)
+if [[ -x "${status_tool}" && -n "${console_user}" && "${console_user}" != "root" && \
+      "${console_user}" != "loginwindow" ]]; then
+    console_uid=$(/usr/bin/id -u "${console_user}")
+    /bin/launchctl asuser "${console_uid}" \
+        /usr/bin/sudo -H -u "${console_user}" "${status_tool}" uninstall || true
+fi
+
+network_tool=/usr/local/bin/horndis
+if [[ ! -x "${network_tool}" ]]; then
+    network_tool=/Library/PrivilegedHelperTools/io.github.noahhhi.horndis
+fi
+if [[ -x "${network_tool}" ]]; then
+    "${network_tool}" service uninstall
+fi

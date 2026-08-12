@@ -29,6 +29,7 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #ifndef HORNDIS_VERSION
 #define HORNDIS_VERSION "development"
@@ -37,6 +38,8 @@
 namespace {
 
 std::atomic_bool gRunning{true};
+
+std::string executablePath(std::string& error);
 
 void handleSignal(int) {
     gRunning.store(false);
@@ -82,14 +85,191 @@ void publishStatus(const horndis::RuntimeStatus& status) {
 void printUsage() {
     std::cout << "HoRNDIS Userspace " << HORNDIS_VERSION << "\n\n"
               << "Usage:\n"
+              << "  horndis install     Install/start networking and the menu app\n"
+              << "  horndis uninstall   Remove networking and the menu login item\n"
+              << "  horndis start       Open the menu bar app\n"
+              << "  horndis stop        Quit the menu bar app; networking stays active\n"
+              << "  horndis restart     Restart the menu bar app\n"
+              << "  horndis status      Show network and menu app status\n"
               << "  horndis probe       List USB network interfaces (no root required)\n"
               << "  horndis usb-test    Claim and initialize the first RNDIS device\n"
               << "  horndis run         Run the RNDIS-to-Ethernet bridge (root required)\n"
-              << "  horndis service install|uninstall  Manage the root launch service\n"
+              << "  horndis service install|uninstall  Low-level root service control\n"
+              << "  horndis help [COMMAND]\n"
               << "  horndis --version   Print the version\n\n"
               << "Environment:\n"
               << "  HORNDIS_HOST_INTERFACE       macOS-facing feth interface (default feth99)\n"
               << "  HORNDIS_TRANSPORT_INTERFACE  BPF-facing feth interface (default feth98)\n";
+}
+
+int printCommandHelp(const std::string& command) {
+    if (command == "install") {
+        std::cout << "Usage: horndis install\n\n"
+                  << "Installs or upgrades the privileged network service, then starts the "
+                     "current user's menu bar app and enables it at login. The fixed network "
+                     "installation requests administrator authentication once.\n";
+    } else if (command == "uninstall") {
+        std::cout << "Usage: horndis uninstall\n\n"
+                  << "Stops and removes the current user's menu login item, then removes the "
+                     "privileged network service with administrator authentication. Package "
+                     "files remain until Homebrew or Installer removes them.\n";
+    } else if (command == "start" || command == "stop" || command == "restart") {
+        std::cout << "Usage: horndis " << command << "\n\n"
+                  << "Controls only the unprivileged menu bar app. The USB networking service "
+                     "continues running and reconnecting independently.\n";
+    } else if (command == "status") {
+        std::cout << "Usage: horndis status\n\n"
+                  << "Reports privileged service installation/runtime state and the current "
+                     "user's menu app/login-startup state. No administrator access is needed.\n";
+    } else if (command == "service") {
+        std::cout << "Usage: sudo horndis service install|uninstall\n\n"
+                  << "Low-level interface for the root LaunchDaemon. Prefer `horndis install` "
+                     "and `horndis uninstall` for normal use.\n";
+    } else if (command == "probe" || command == "usb-test" || command == "run") {
+        printUsage();
+    } else {
+        std::cerr << "No help topic for: " << command << '\n';
+        return 64;
+    }
+    return 0;
+}
+
+int runProcess(const std::vector<std::string>& arguments, bool quiet = false) {
+    if (arguments.empty()) {
+        return 64;
+    }
+    std::cout.flush();
+    std::cerr.flush();
+    const pid_t child = fork();
+    if (child == 0) {
+        if (quiet) {
+            const int descriptor = open("/dev/null", O_WRONLY);
+            if (descriptor >= 0) {
+                (void)dup2(descriptor, STDOUT_FILENO);
+                (void)dup2(descriptor, STDERR_FILENO);
+                (void)close(descriptor);
+            }
+        }
+        std::vector<char*> argv;
+        argv.reserve(arguments.size() + 1);
+        for (const auto& argument : arguments) {
+            argv.push_back(const_cast<char*>(argument.c_str()));
+        }
+        argv.push_back(nullptr);
+        execv(argv[0], argv.data());
+        _exit(127);
+    }
+    if (child < 0) {
+        std::cerr << "cannot start " << arguments.front() << ": " << std::strerror(errno) << '\n';
+        return 1;
+    }
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) {
+            return 1;
+        }
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+}
+
+std::string menuToolPath() {
+    constexpr const char* executable =
+        "/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status";
+    if (access(executable, X_OK) == 0) {
+        return executable;
+    }
+    return {};
+}
+
+int runMenuCommand(const std::string& action) {
+    const std::string executable = menuToolPath();
+    if (executable.empty()) {
+        std::cerr << "cannot find /Applications/HoRNDIS Status.app; reinstall HoRNDIS\n";
+        return 1;
+    }
+    return runProcess({executable, action});
+}
+
+bool requireUserSession() {
+    if (geteuid() != 0) {
+        return true;
+    }
+    std::cerr << "run this command as the logged-in user, without sudo; HoRNDIS will request "
+                 "administrator authentication only for the network-service step\n";
+    return false;
+}
+
+int installAll() {
+    if (!requireUserSession()) {
+        return 64;
+    }
+    if (menuToolPath().empty()) {
+        std::cerr << "cannot find /Applications/HoRNDIS Status.app; reinstall the HoRNDIS "
+                     "package before installing its services\n";
+        return 1;
+    }
+    std::string error;
+    const std::string executable = executablePath(error);
+    if (executable.empty()) {
+        std::cerr << error << '\n';
+        return 1;
+    }
+    const int serviceResult = runProcess({"/usr/bin/sudo", executable, "service", "install"});
+    if (serviceResult != 0) {
+        return serviceResult;
+    }
+    return runMenuCommand("install");
+}
+
+int uninstallAll() {
+    if (!requireUserSession()) {
+        return 64;
+    }
+    int menuResult = 0;
+    if (!menuToolPath().empty()) {
+        menuResult = runMenuCommand("uninstall");
+    }
+    std::string error;
+    const std::string executable = executablePath(error);
+    if (executable.empty()) {
+        std::cerr << error << '\n';
+        return 1;
+    }
+    const int serviceResult =
+        runProcess({"/usr/bin/sudo", executable, "service", "uninstall"});
+    return serviceResult != 0 ? serviceResult : menuResult;
+}
+
+int printStatus() {
+    const bool helperInstalled = access("/Library/PrivilegedHelperTools/io.github.noahhhi.horndis",
+                                        X_OK) == 0;
+    const bool plistInstalled = access("/Library/LaunchDaemons/io.github.noahhhi.horndis.plist",
+                                       R_OK) == 0;
+    const bool serviceRunning =
+        runProcess({"/bin/launchctl", "print", "system/io.github.noahhhi.horndis"}, true) == 0;
+    std::cout << "Network service: "
+              << (serviceRunning ? "running" : (helperInstalled && plistInstalled ? "stopped"
+                                                                                  : "not installed"))
+              << '\n';
+
+    NSData* data = [NSData dataWithContentsOfFile:@"/var/run/horndis/status.json"];
+    if (data != nil) {
+        NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        NSString* state = [json isKindOfClass:[NSDictionary class]] ? json[@"state"] : nil;
+        NSString* device = [json isKindOfClass:[NSDictionary class]] ? json[@"device"] : nil;
+        if ([state isKindOfClass:[NSString class]]) {
+            std::cout << "Connection: " << state.UTF8String;
+            if ([device isKindOfClass:[NSString class]] && device.length > 0) {
+                std::cout << " (" << device.UTF8String << ")";
+            }
+            std::cout << '\n';
+        }
+    }
+    if (menuToolPath().empty()) {
+        std::cout << "Menu bar app: not installed\n";
+        return 0;
+    }
+    return runMenuCommand("status");
 }
 
 int probe() {
@@ -589,6 +769,9 @@ int main(int argc, char* argv[]) {
         if (argc == 3 && std::string(argv[1]) == "service") {
             return manageService(argv[2]);
         }
+        if (argc == 3 && std::string(argv[1]) == "help") {
+            return printCommandHelp(argv[2]);
+        }
         if (argc != 2) {
             printUsage();
             return argc == 1 ? 0 : 64;
@@ -601,6 +784,18 @@ int main(int argc, char* argv[]) {
         if (command == "--help" || command == "help") {
             printUsage();
             return 0;
+        }
+        if (command == "install") {
+            return installAll();
+        }
+        if (command == "uninstall") {
+            return uninstallAll();
+        }
+        if (command == "start" || command == "stop" || command == "restart") {
+            return runMenuCommand(command);
+        }
+        if (command == "status") {
+            return printStatus();
         }
         if (command == "probe") {
             return probe();

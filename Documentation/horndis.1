@@ -1,0 +1,85 @@
+.TH HORNDIS 1 "2026-08-12" "HoRNDIS Userspace" "User Commands"
+.SH NAME
+horndis \- Android USB tethering for modern macOS
+.SH SYNOPSIS
+.B horndis
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B horndis
+provides a user-space RNDIS bridge, a persistent network service, and a
+lightweight menu bar application. It does not install a kernel extension or
+require disabling System Integrity Protection.
+.SH COMMANDS
+.TP
+.B install
+Install or upgrade the privileged network service, start the current user's
+menu app, and enable it at login. Run as the logged-in user; administrator
+authentication is requested only for the network-service step.
+.TP
+.B uninstall
+Remove the current user's menu login item and the privileged network service.
+Package files remain until Homebrew or Installer removes them.
+.TP
+.B start
+Open or restart the menu bar app without changing login startup.
+.TP
+.B stop
+Quit the menu bar app while leaving USB networking active.
+.TP
+.B restart
+Restart the menu bar app.
+.TP
+.B status
+Report network-service, connection, menu-app, and login-startup state.
+.TP
+.B probe
+List detected RNDIS, CDC-ECM, and CDC-NCM USB networking functions.
+.TP
+.B usb-test
+Claim and initialize the first supported RNDIS device without creating a
+macOS network interface.
+.TP
+.BI "service " "install|uninstall"
+Low-level privileged LaunchDaemon management. Prefer
+.B horndis install
+and
+.B horndis uninstall
+for normal use.
+.TP
+.B run
+Run the network bridge in the foreground. Requires root.
+.TP
+.BI "help " "[command]"
+Show general or command-specific help.
+.TP
+.B --version
+Print the installed version.
+.SH ENVIRONMENT
+.TP
+.B HORNDIS_HOST_INTERFACE
+macOS-facing feth interface. The default is feth99.
+.TP
+.B HORNDIS_TRANSPORT_INTERFACE
+BPF-facing feth interface. The default is feth98.
+.SH FILES
+.TP
+.B /Applications/HoRNDIS Status.app
+Menu bar application installed by the release package or Homebrew Cask.
+.TP
+.B /Library/PrivilegedHelperTools/io.github.noahhhi.horndis
+Fixed privileged network helper.
+.TP
+.B /Library/LaunchDaemons/io.github.noahhhi.horndis.plist
+System LaunchDaemon configuration.
+.TP
+.B /var/run/horndis/status.json
+Current runtime status.
+.TP
+.B /var/log/horndis.log
+Network-service log.
+.SH SEE ALSO
+.BR launchctl (1),
+.BR ifconfig (8)
+.SH PROJECT
+https://github.com/noahhhi/HoRNDIS-Userspace

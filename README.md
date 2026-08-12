@@ -15,15 +15,17 @@ Current reference test: Apple Silicon Mac running macOS 27.0, Pixel 4 XL running
 
 ## Install
 
-The recommended installation builds locally from source, so it needs neither a paid Apple Developer account nor a notarized download:
+The recommended Homebrew installation downloads the prebuilt universal package; it does not compile on the target Mac and does not require Xcode or Command Line Tools:
 
 ```sh
-brew install noahhhi/tap/horndis && horndis-install
+brew install --cask noahhhi/tap/horndis
 ```
 
-The Formula carries both the network service and the lightweight SwiftUI/AppKit menu bar app. Homebrew itself stays unprivileged; `horndis-install` then requests administrator authorization once, installs the fixed root service, starts the per-user menu app, and enables it at login. It never stores the administrator credential.
+The Cask uses the same universal `.pkg` as GitHub Releases. One standard Installer authorization places **HoRNDIS Status.app** in `/Applications`, installs the CLI and manual pages, activates the fixed root service, starts the per-user menu app, and enables it at login. It never stores the administrator credential. If the menu app is quit, reopen it from Applications, Launchpad, or Spotlight, or run `horndis start`.
 
-Alternatively, download the universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) and open it. The package contains and activates both components with one Installer authorization. This personal project cannot notarize downloads without a paid Developer ID, so macOS may require an explicit **Open Anyway** confirmation in Privacy & Security. Homebrew source installation remains the preferred path.
+The HoRNDIS Cask itself can be installed without developer tools because it only downloads a prebuilt package. Homebrew still lists Xcode Command Line Tools or Xcode as a requirement for a fully supported Homebrew installation; use the release `.pkg` directly when Homebrew is not already installed.
+
+Alternatively, download the identical universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) and open it. Neither installation path compiles locally. This personal project cannot notarize downloads without a paid Developer ID, so macOS may require an explicit **Open Anyway** confirmation in Privacy & Security.
 
 Enable **USB tethering** on Android, then verify:
 
@@ -35,14 +37,13 @@ curl https://ifconfig.me
 
 The launch daemon waits when no phone is connected and reconnects automatically after USB hot-plug or tethering mode changes. Its log is `/var/log/horndis.log`.
 
-The menu bar starts in a compact view showing the Android device, session RX/TX totals, connection duration, persistent authorization state, **USB Tethering**, and login-start switches. If the privileged service is missing, an **Authorize and Install…** row invokes the standard macOS administrator authentication dialog for the fixed bundled installer command. Visible values refresh every second. Expand the system-animated **Details** disclosure for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. Normal switches talk only to a local Unix socket and never ask for an administrator password.
+The native menu shows the Android device, session RX/TX totals, connection duration, persistent authorization state, **USB Tethering**, and login-start switches. If the privileged service is missing, an **Authorize and Install…** row invokes the standard macOS administrator authentication dialog for the fixed bundled installer command. Visible values refresh every second. Open the native **Details** submenu for the IP address, interface, device MAC, service PID, log, and copyable diagnostics. Normal switches talk only to a local Unix socket and never ask for an administrator password.
 
 To remove it:
 
 ```sh
-sudo horndis service uninstall
-horndis-status uninstall
-brew uninstall horndis
+horndis uninstall
+brew uninstall --cask horndis
 brew untap noahhhi/tap
 ```
 
@@ -71,7 +72,7 @@ unprivileged data agent
              ↕
   read-only status + local control socket
              ↕
-   SwiftUI/AppKit menu bar status
+      AppKit menu bar status
 ```
 
 - `IOUSBHost` claims only the RNDIS control and data interfaces. ADB stays on its separate USB interface.
@@ -82,21 +83,23 @@ unprivileged data agent
 - USB discovery, RNDIS parsing, packet forwarding, runtime status, and menu control all execute in that unprivileged data agent. The root supervisor does not parse device-controlled traffic.
 - The optional menu bar process is also unprivileged and isolated from the data path. Quitting it cannot disconnect the USB network.
 
-Administrator authorization is required only to install or upgrade the root-owned LaunchDaemon. It can be requested with `horndis-install` in a terminal or from **Authorize and Install…** in the menu bar. At each boot the privileged setup lasts only long enough to create the network capability; reboot, login, sleep/wake, USB reconnect, and normal menu use require no further authorization. See the [privilege model](docs/PRIVILEGE_MODEL.md).
+Administrator authorization is required only to install, upgrade, or remove the root-owned LaunchDaemon. It can be requested with `horndis install` in a terminal or from **Authorize and Install…** in the menu bar. At each boot the privileged setup lasts only long enough to create the network capability; reboot, login, sleep/wake, USB reconnect, and normal menu use require no further authorization. See the [privilege model](docs/PRIVILEGE_MODEL.md).
 
 ## Commands
 
 ```text
-horndis-install               authorize once and install/start both components
+horndis install               authorize once and install/start both components
+horndis uninstall             remove both persistent components
+horndis start|stop|restart    control only the menu bar app
+horndis status                show network, connection, and menu status
 horndis probe                 list RNDIS/CDC USB networking functions
 horndis usb-test              initialize RNDIS without creating a network interface
 sudo horndis run              run in the foreground
 sudo horndis service install  install and start the launch daemon
 sudo horndis service uninstall
 horndis --version
-horndis-status                 run the menu bar status app
-horndis-status install         start now and at login (no root required)
-horndis-status uninstall       remove the login item
+horndis help [command]
+man horndis
 ```
 
 The bridge defaults to `feth99` for macOS and `feth98` for the daemon. Root launch environments can override them with `HORNDIS_HOST_INTERFACE` and `HORNDIS_TRANSPORT_INTERFACE`; values are restricted to `feth<number>` names.
@@ -137,7 +140,7 @@ RNDIS currently supports Android gadget layouts `e0/01/03`, `02/02/ff`, and `ef/
 
 - `cannot claim ... interface`: stop another RNDIS driver or application that owns interfaces 0/1. ADB on interface 2 is compatible.
 - No address on `feth99`: turn USB tethering off and on, then inspect `/var/log/horndis.log`.
-- After a Homebrew upgrade, rerun `horndis-install` to update the privileged helper and refresh the menu LaunchAgent in one operation.
+- The Homebrew Cask and release `.pkg` update the privileged helper and menu LaunchAgent as part of package installation; no local compiler is used.
 - To keep Wi-Fi active while testing the phone path, bind the socket with `ping -b feth99 8.8.8.8`.
 - Android VPN apps normally do not share their tunnel through native USB tethering. If the phone's underlying Wi-Fi cannot access a destination without its VPN, that destination will also be unavailable to the Mac.
 - On rooted Android builds where DHCP and ICMP work but TCP stalls, inspect `dumpsys tethering` for conntrack/BPF errors. The Android BPF offload can be disabled for diagnosis with `device_config put connectivity override_tether_enable_bpf_offload false`; delete that property to restore the device default.

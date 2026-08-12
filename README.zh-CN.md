@@ -15,15 +15,17 @@
 
 ## 安装
 
-推荐安装方式会在本机从源代码构建，因此既不需要付费 Apple Developer 账户，也不依赖经过公证的下载：
+推荐的 Homebrew 安装会下载预编译的通用安装包，不在目标 Mac 上编译，因此不需要 Xcode 或 Command Line Tools：
 
 ```sh
-brew install noahhhi/tap/horndis && horndis-install
+brew install --cask noahhhi/tap/horndis
 ```
 
-Formula 同时包含网络服务和轻量的 SwiftUI/AppKit 菜单栏应用。Homebrew 本身不使用管理员权限；随后运行的 `horndis-install` 只请求一次管理员授权，安装固定的 root 服务、启动当前用户的菜单栏应用，并启用登录时启动。管理员凭据不会被保存。
+Cask 使用与 GitHub Releases 相同的通用 `.pkg`。一次标准 Installer 授权会把 **HoRNDIS Status.app** 安装到 `/Applications`，安装命令行和 man 手册，启用固定的 root 服务，启动当前用户的菜单栏应用并设置登录时启动。管理员凭据不会被保存。退出菜单栏后，可以从“应用程序”、Launchpad 或 Spotlight 重新打开，也可以运行 `horndis start`。
 
-也可以从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 并打开。安装包会通过一次 Installer 授权安装和启用两个组件。个人项目没有付费 Developer ID，无法对下载内容进行公证，因此 macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”。Homebrew 源代码安装仍是首选方式。
+HoRNDIS Cask 本身只下载预编译安装包，可以在没有开发工具时安装；但 Homebrew 仍把 Xcode Command Line Tools 或 Xcode 列为“受支持 Homebrew 安装”的系统要求。尚未安装 Homebrew 的电脑可直接使用 Release `.pkg`，完全不需要开发工具。
+
+也可以从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载完全相同的通用 `.pkg` 并打开；两种路径都不会在本机编译。个人项目没有付费 Developer ID，无法对下载内容进行公证，因此 macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”。
 
 在 Android 上开启 **USB 网络共享**，然后验证：
 
@@ -35,14 +37,13 @@ curl https://ifconfig.me
 
 没有连接手机时，LaunchDaemon 会等待；USB 热插拔或共享模式变化后会自动重新连接。服务日志位于 `/var/log/horndis.log`。
 
-菜单栏默认以紧凑模式显示 Android 设备、当前会话上下行总流量、连接时长、持久授权状态、**USB 网络共享**开关和登录时启动开关。若特权服务尚未安装，会额外显示“**授权并安装…**”，点击后由标准 macOS 管理员认证对话框执行固定的内置安装命令。菜单打开时可见数据每秒刷新一次。展开使用系统动画的“**详细信息**”可查看 IP 地址、接口、设备 MAC、服务 PID、日志和可复制诊断信息。正常使用开关只与本地 Unix socket 通信，不再要求管理员密码。
+原生菜单显示 Android 设备、当前会话上下行总流量、连接时长、持久授权状态、**USB 网络共享**开关和登录时启动开关。若特权服务尚未安装，会额外显示“**授权并安装…**”，点击后由标准 macOS 管理员认证对话框执行固定的内置安装命令。菜单打开时可见数据每秒刷新一次。打开原生“**详细信息**”子菜单可查看 IP 地址、接口、设备 MAC、服务 PID、日志和可复制诊断信息。正常使用开关只与本地 Unix socket 通信，不再要求管理员密码。
 
 卸载：
 
 ```sh
-sudo horndis service uninstall
-horndis-status uninstall
-brew uninstall horndis
+horndis uninstall
+brew uninstall --cask horndis
 brew untap noahhhi/tap
 ```
 
@@ -71,7 +72,7 @@ Android RNDIS 控制端点与批量传输端点
        ↕
 只读状态 + 本地控制 socket
        ↕
-SwiftUI/AppKit 菜单栏状态应用
+      AppKit 菜单栏状态应用
 ```
 
 - `IOUSBHost` 只占用 RNDIS 的控制接口和数据接口，ADB 继续使用独立的 USB 接口。
@@ -82,21 +83,23 @@ SwiftUI/AppKit 菜单栏状态应用
 - USB 发现、RNDIS 解析、数据包转发、运行状态和菜单控制都在非特权数据代理中完成，root 监控进程不会解析设备控制的数据。
 - 可选菜单栏进程同样不带特权，并与数据路径隔离；退出菜单栏不会断开 USB 网络。
 
-管理员授权只在安装或升级 root 所有的 LaunchDaemon 时需要。可以在终端运行 `horndis-install`，也可以点击菜单栏中的“**授权并安装…**”。每次开机时，特权设置只持续到网络能力创建完毕；重启、登录、睡眠唤醒、USB 重连和日常菜单操作都不再需要授权。详见[权限模型](docs/PRIVILEGE_MODEL.md)。
+管理员授权只在安装、升级或移除 root 所有的 LaunchDaemon 时需要。可以在终端运行 `horndis install`，也可以点击菜单栏中的“**授权并安装…**”。每次开机时，特权设置只持续到网络能力创建完毕；重启、登录、睡眠唤醒、USB 重连和日常菜单操作都不再需要授权。详见[权限模型](docs/PRIVILEGE_MODEL.md)。
 
 ## 命令
 
 ```text
-horndis-install               授权一次并安装/启动两个组件
+horndis install               授权一次并安装/启动两个组件
+horndis uninstall             移除两个持久组件
+horndis start|stop|restart    仅控制菜单栏应用
+horndis status                显示网络、连接和菜单状态
 horndis probe                 列出 RNDIS/CDC USB 网络功能
 horndis usb-test              初始化 RNDIS，但不创建网络接口
 sudo horndis run              在前台运行
 sudo horndis service install  安装并启动 LaunchDaemon
 sudo horndis service uninstall
 horndis --version
-horndis-status                运行菜单栏状态应用
-horndis-status install        立即启动并在登录时启动（无需 sudo）
-horndis-status uninstall      移除登录项
+horndis help [命令]
+man horndis
 ```
 
 桥接默认使用 `feth99` 作为 macOS 端接口，使用 `feth98` 作为守护进程端接口。root 启动环境可以通过 `HORNDIS_HOST_INTERFACE` 和 `HORNDIS_TRANSPORT_INTERFACE` 覆盖它们；取值仅允许 `feth<number>` 格式。
@@ -137,7 +140,7 @@ RNDIS 目前支持与 CDC 数据接口配对的 Android gadget 布局 `e0/01/03`
 
 - `cannot claim ... interface`：停止占用接口 0/1 的其他 RNDIS 驱动或应用。接口 2 上的 ADB 可以共存。
 - `feth99` 没有地址：关闭再开启 USB 网络共享，然后检查 `/var/log/horndis.log`。
-- Homebrew 升级后，重新运行 `horndis-install`，一次更新特权辅助程序并刷新菜单 LaunchAgent。
+- Homebrew Cask 和 Release `.pkg` 会在安装包流程中更新特权辅助程序及菜单 LaunchAgent，不使用本地编译器。
 - 测试手机路径时如需保持 Wi-Fi 活跃，可运行 `ping -b feth99 8.8.8.8` 绑定接口。
 - Android VPN 应用通常不会通过原生 USB 网络共享转发其隧道。如果手机底层 Wi-Fi 在不使用 VPN 时无法访问某个目标，Mac 通常也无法通过共享访问该目标。
 - 在已 root 的 Android 系统中，如果 DHCP 和 ICMP 正常但 TCP 停滞，请检查 `dumpsys tethering` 中的 conntrack/BPF 错误。诊断时可以运行 `device_config put connectivity override_tether_enable_bpf_offload false` 关闭 Android BPF offload；删除该属性即可恢复设备默认设置。

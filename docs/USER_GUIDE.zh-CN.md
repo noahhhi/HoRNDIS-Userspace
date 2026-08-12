@@ -12,12 +12,14 @@
 ## 安装
 
 ```sh
-brew install noahhhi/tap/horndis && horndis-install
+brew install --cask noahhhi/tap/horndis
 ```
 
-Homebrew Formula 会同时安装网络程序和菜单栏 App。`horndis-install` 只请求一次管理员认证，把网络服务复制到 `/Library/PrivilegedHelperTools`、启动 LaunchDaemon，并为当前用户安装菜单栏 LaunchAgent。密码只由 macOS `sudo` 处理，程序不会保存密码。
+Homebrew Cask 会安装预编译的通用 Release 包，其中包括 `/Applications/HoRNDIS Status.app`、`horndis` 命令和 man 手册。安装包只请求一次标准 Installer 管理员认证，把网络服务复制到 `/Library/PrivilegedHelperTools`、启动 LaunchDaemon，并为当前用户安装菜单栏 LaunchAgent。它不会在本机编译，也不需要 Xcode 或 Command Line Tools。
 
-GitHub Releases 中的通用 `.pkg` 是另一种一体化安装方式；双击后只需一次 Installer 管理员认证即可安装并启动两部分。由于免费开发者账户无法提供 Developer ID 公证，macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”；因此仍优先推荐 Homebrew 源码安装。
+不过，Homebrew 仍把 Command Line Tools 或 Xcode 列为“受支持 Homebrew 安装”的系统要求。如果电脑尚未安装 Homebrew，可直接安装同一个 Release `.pkg`；HoRNDIS 本身不需要目标 Mac 上存在开发工具。
+
+GitHub Releases 中的通用 `.pkg` 与 Cask 使用的是同一个安装包。由于免费开发者账户无法提供 Developer ID 公证，macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”。
 
 在 Android 设置中打开 **USB 网络共享**。服务会自动发现 RNDIS 接口；如果手机还提供独立的 ADB 接口，ADB 可以同时使用。
 
@@ -31,15 +33,15 @@ GitHub Releases 中的通用 `.pkg` 是另一种一体化安装方式；双击�
 - 持久管理员授权状态；
 - 最右侧的“USB 网络共享”滑块；
 - 登录时启动滑块；
-- 使用系统动画的“详细信息”展开项。
+- 原生“详细信息”子菜单。
 
-展开“详细信息”后，可以在同一面板中查看 DHCP 地址、feth 接口、设备 MAC、服务 PID、后台状态、日志入口、项目主页及可复制的诊断信息。
+打开“详细信息”后，可以在原生子菜单中查看 DHCP 地址、feth 接口、设备 MAC、服务 PID、后台状态、日志入口、项目主页及可复制的诊断信息。
 
 状态栏使用 macOS 原生模板图标，菜单使用动态系统颜色；两者会自动跟随浅色或深色外观，即使菜单栏外观与 App 外观不同也能保持正确对比度。
 
-在 macOS 13 及以上版本中，HoRNDIS 使用 SwiftUI 原生窗口样式的 `MenuBarExtra`。系统负责把面板与状态栏图标对齐，并在不让 HoRNDIS 抢占前台焦点的情况下，以用户选择的系统强调色绘制原生滑块。“详细信息”使用原生 `DisclosureGroup`；macOS 14 及以上使用 Apple 预设的平滑弹簧动画。macOS 11 和 12 使用等价的 `NSPopover` 后备实现。
+HoRNDIS 在所有受支持的 macOS 版本上都使用 AppKit 的 `NSStatusItem`、`NSMenu` 和 `NSSwitch`。因此，菜单外框、外框和选区圆角、间距、鼠标跟踪、子菜单动画、深浅色材质及系统强调色均由 macOS 绘制。HoRNDIS 不再自行绘制或裁剪一个仿菜单浮窗，菜单打开时也不会抢占前台应用焦点。
 
-“授权状态：已授权”表示 root 所有的网络 helper 及其 LaunchDaemon 配置已经安全安装。如果文件缺失、所有者错误、可被非 root 用户写入或配置无效，菜单会显示“授权状态：需要授权”，并在其正下方增加“授权并安装…”。点击后由 macOS 标准管理员认证对话框执行 App 内置且固定的 `horndis service install` 命令；HoRNDIS 不会接触或保存密码。命令行仍可使用 `horndis-install` 完成同一操作。
+“授权状态：已授权”表示 root 所有的网络 helper 及其 LaunchDaemon 配置已经安全安装。如果文件缺失、所有者错误、可被非 root 用户写入或配置无效，菜单会显示“授权状态：需要授权”，并在其正下方增加“授权并安装…”。点击后由 macOS 标准管理员认证对话框执行 App 内置且固定的 `horndis service install` 命令；HoRNDIS 不会接触或保存密码。命令行可以使用 `horndis install` 完成同一操作。
 
 关闭 **USB 网络共享** 滑块只会暂停 RNDIS 桥接，后台服务仍保持运行；打开滑块会恢复设备扫描。菜单栏不能代替用户在 Android 上打开 USB 网络共享。
 
@@ -52,18 +54,23 @@ GitHub Releases 中的通用 `.pkg` 是另一种一体化安装方式；双击�
 可以用以下命令或菜单栏确认状态：
 
 ```sh
+horndis status
 ifconfig feth99
 scutil --nwi
 ipconfig getsummary feth99
 tail -f /var/log/horndis.log
 ```
 
+如果已经退出菜单栏 App，可以从“应用程序”、Launchpad 或 Spotlight 重新打开，
+也可以运行 `horndis start`。`horndis stop` 会关闭菜单栏但保留登录时启动设置，
+`horndis restart` 可用于排障后重启。完整命令请运行 `horndis help` 或
+`man horndis`。
+
 ## 升级
 
 ```sh
 brew update
-brew upgrade horndis
-horndis-install
+brew upgrade --cask horndis
 ```
 
 只有重新安装后台网络服务需要管理员认证。开机启动、USB 重连和菜单栏操作都不会再次询问密码。常驻 root 进程只是最小监督器，USB 与 RNDIS 数据处理在当前登录用户权限下运行，详见[权限模型](PRIVILEGE_MODEL.md)。
@@ -71,9 +78,8 @@ horndis-install
 ## 卸载
 
 ```sh
-horndis-status uninstall
-sudo horndis service uninstall
-brew uninstall horndis
+horndis uninstall
+brew uninstall --cask horndis
 ```
 
 ## 网络测试与 VPN
