@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 - 2026-08-12
+
+- Restore the selected system accent color on the native switch controls without replacing their system material or animation.
+- Force standard menu-item icons to remain visible on macOS 27 so native and switch rows share the same icon, title, and vertical alignment.
+- Keep the native `NSMenu` frame and corner geometry introduced in 0.3.0.
+
 ## 0.3.0 - 2026-08-12
 
 - Replace the custom window-style popover and all manual corner clipping with AppKit's native `NSStatusItem` and `NSMenu`, letting macOS own the exact menu frame, corner geometry, spacing, highlights, dark mode, and submenu animations.
