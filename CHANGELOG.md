@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-08-12
 
 - Replace the custom window-style popover and all manual corner clipping with AppKit's native `NSStatusItem` and `NSMenu`, letting macOS own the exact menu frame, corner geometry, spacing, highlights, dark mode, and submenu animations.
 - Keep the compact native `NSSwitch` controls for USB tethering and login startup while the surrounding status, action, and Details rows use standard menu items.
