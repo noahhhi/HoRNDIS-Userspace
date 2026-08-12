@@ -4,6 +4,8 @@
 
 - Use Apple's `DisclosureGroupStyle` pattern with a native, faster smooth spring for matching expand and collapse animations.
 - Make the complete Details row clickable with the system accent-color hover treatment, and keep its icon and text aligned with the surrounding controls.
+- Use the native mini switch and a consistent 32-point height for every menu row, with a slimmer 24-point accent selection for interactive rows.
+- Match menu selections to the system window with equal edge insets and native concentric-corner geometry on macOS 26, plus a continuous-radius compatibility fallback on older systems.
 - Prevent transient menu-window resize callbacks from cancelling disclosure animations, align expanded rows with the compact view, and display transmitted traffic before received traffic.
 
 ## 0.2.2 - 2026-08-12

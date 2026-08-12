@@ -12,6 +12,12 @@ private let privilegedHelperPath = "/Library/PrivilegedHelperTools/io.github.noa
 private let launchDaemonPath = "/Library/LaunchDaemons/io.github.noahhhi.horndis.plist"
 private let launchDaemonLabel = "io.github.noahhhi.horndis"
 private let projectURL = URL(string: "https://github.com/noahhhi/HoRNDIS-Userspace")!
+private let statusPopoverRowHeight: CGFloat = 32
+private let statusPopoverSelectionHorizontalInset: CGFloat = 4
+private let statusPopoverSelectionVerticalInset: CGFloat = 4
+private let statusPopoverSelectionContentHorizontalInset: CGFloat = 8
+private let statusPopoverSelectionMinimumRadius: CGFloat = 8
+private let statusPopoverContainerRadius: CGFloat = 16
 
 private func localized(_ english: String, _ chinese: String) -> String {
     Locale.preferredLanguages.first?.hasPrefix("zh") == true ? chinese : english
@@ -456,7 +462,7 @@ private struct StatusPopoverInfoRow: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .frame(height: 30)
+        .frame(height: statusPopoverRowHeight)
     }
 }
 
@@ -469,7 +475,7 @@ private struct StatusPopoverSwitchRow: View {
     private var toggle: some View {
         Toggle(title, isOn: $isOn)
             .labelsHidden()
-            .controlSize(.small)
+            .controlSize(.mini)
             .disabled(!isEnabled)
     }
 
@@ -491,12 +497,44 @@ private struct StatusPopoverSwitchRow: View {
             systemToggle
         }
         .padding(.horizontal, 12)
-        .frame(height: 38)
+        .frame(height: statusPopoverRowHeight)
     }
 }
 
 private final class StatusPopoverHoverModel: ObservableObject {
     @Published var isHovered = false
+}
+
+private struct StatusPopoverSelectionBackground: View {
+    let isSelected: Bool
+
+    private var compatibilityBackground: some View {
+        RoundedRectangle(
+            cornerRadius: statusPopoverSelectionMinimumRadius,
+            style: .continuous
+        )
+        .fill(isSelected ? Color.accentColor : .clear)
+        .padding(.vertical, statusPopoverSelectionVerticalInset)
+    }
+
+    @ViewBuilder
+    var body: some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            ConcentricRectangle(
+                corners: .concentric(
+                    minimum: .fixed(statusPopoverSelectionMinimumRadius)
+                )
+            )
+            .fill(isSelected ? Color.accentColor : .clear)
+            .padding(.vertical, statusPopoverSelectionVerticalInset)
+        } else {
+            compatibilityBackground
+        }
+#else
+        compatibilityBackground
+#endif
+    }
 }
 
 private struct StatusPopoverActionRow: View {
@@ -532,19 +570,18 @@ private struct StatusPopoverActionRow: View {
                             : Color(NSColor.tertiaryLabelColor))
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
+            .padding(.horizontal, statusPopoverSelectionContentHorizontalInset)
+            .frame(height: statusPopoverRowHeight)
             .foregroundColor(hoverModel.isHovered
                 ? Color(NSColor.selectedMenuItemTextColor)
                 : Color.primary)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(hoverModel.isHovered ? Color.accentColor : .clear)
-            )
+            .background(StatusPopoverSelectionBackground(
+                isSelected: hoverModel.isHovered
+            ))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, statusPopoverSelectionHorizontalInset)
         .onHover { hovering in
             hoverModel.isHovered = hovering
         }
@@ -595,20 +632,33 @@ private struct StatusPopoverDisclosureLabel: View {
                     : .secondary)
                 .rotationEffect(.degrees(expanded ? 90 : 0))
         }
-        .padding(.horizontal, 8)
-        .frame(height: 32)
+        .padding(.horizontal, statusPopoverSelectionContentHorizontalInset)
+        .frame(height: statusPopoverRowHeight)
         .foregroundColor(hoverModel.isHovered
             ? Color(NSColor.selectedMenuItemTextColor)
             : Color.primary)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(hoverModel.isHovered ? Color.accentColor : .clear)
-        )
+        .background(StatusPopoverSelectionBackground(
+            isSelected: hoverModel.isHovered
+        ))
         .contentShape(Rectangle())
-        .padding(.horizontal, 4)
-        .frame(height: 38)
+        .padding(.horizontal, statusPopoverSelectionHorizontalInset)
+        .frame(height: statusPopoverRowHeight)
         .onHover { hovering in
             hoverModel.isHovered = hovering
+        }
+    }
+}
+
+private struct StatusPopoverContainerShapeModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 12.0, *) {
+            content.containerShape(RoundedRectangle(
+                cornerRadius: statusPopoverContainerRadius,
+                style: .continuous
+            ))
+        } else {
+            content
         }
     }
 }
@@ -712,9 +762,10 @@ private struct StatusPopoverContent: View {
                                    shortcut: "⌘Q",
                                    action: model.quit)
         }
-        .padding(.vertical, 6)
+        .padding(.top, 6)
         .frame(width: 286)
         .fixedSize(horizontal: false, vertical: true)
+        .modifier(StatusPopoverContainerShapeModifier())
         .onAppear(perform: model.didAppear)
         .onDisappear(perform: model.didDisappear)
     }
