@@ -2,6 +2,7 @@
 import AppKit
 import Darwin
 import Foundation
+import SwiftUI
 
 private let horndisStatusVersion = Bundle.main.object(
     forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -462,10 +463,72 @@ private enum NativeMenuMetrics {
 }
 
 @MainActor
+private final class NativeMenuToggleModel: NSObject, ObservableObject {
+    @Published var isOn: Bool
+    @Published var isEnabled: Bool
+    private weak var actionTarget: AnyObject?
+    private let actionSelector: Selector
+
+    init(isOn: Bool,
+         isEnabled: Bool,
+         target: AnyObject,
+         action: Selector) {
+        self.isOn = isOn
+        self.isEnabled = isEnabled
+        actionTarget = target
+        actionSelector = action
+    }
+
+    func setFromUser(_ newValue: Bool) {
+        guard isEnabled else { return }
+        isOn = newValue
+        NSApp.sendAction(actionSelector, to: actionTarget, from: self)
+    }
+
+    func update(isOn: Bool, isEnabled: Bool) {
+        if self.isOn != isOn {
+            self.isOn = isOn
+        }
+        if self.isEnabled != isEnabled {
+            self.isEnabled = isEnabled
+        }
+    }
+}
+
+@MainActor
+private struct NativeMenuSwitchControl: View {
+    @ObservedObject var model: NativeMenuToggleModel
+    let accessibilityTitle: String
+
+    private var toggle: some View {
+        Toggle(accessibilityTitle,
+               isOn: Binding(get: { model.isOn },
+                             set: { model.setFromUser($0) }))
+            .labelsHidden()
+            .controlSize(.mini)
+            .disabled(!model.isEnabled)
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 13.0, *) {
+            toggle
+                .toggleStyle(.switch)
+                .tint(Color(nsColor: .controlAccentColor))
+        } else {
+            toggle
+                .toggleStyle(SwitchToggleStyle(tint: Color(NSColor.controlAccentColor)))
+        }
+    }
+}
+
+@MainActor
 private final class NativeMenuSwitchRow: NSView {
-    let toggle = NSSwitch()
+    let model: NativeMenuToggleModel
     private let iconView = NSImageView()
     private let titleLabel: NSTextField
+    private let hostingView: NSHostingView<NativeMenuSwitchControl>
 
     init(title: String,
          image: NSImage?,
@@ -473,14 +536,24 @@ private final class NativeMenuSwitchRow: NSView {
          isEnabled: Bool,
          target: AnyObject,
          action: Selector) {
+        model = NativeMenuToggleModel(isOn: state == .on,
+                                      isEnabled: isEnabled,
+                                      target: target,
+                                      action: action)
         titleLabel = NSTextField(labelWithString: title)
+        hostingView = NSHostingView(
+            rootView: NativeMenuSwitchControl(model: model,
+                                              accessibilityTitle: title)
+        )
         super.init(frame: NSRect(x: 0,
                                  y: 0,
                                  width: NativeMenuMetrics.width,
                                  height: NativeMenuMetrics.rowHeight))
+        autoresizingMask = [.width]
 
         iconView.image = image
         iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
+        iconView.imageScaling = .scaleProportionallyDown
         iconView.frame = NSRect(x: NativeMenuMetrics.horizontalInset,
                                 y: floor((NativeMenuMetrics.rowHeight -
                                     NativeMenuMetrics.iconSize) / 2),
@@ -491,26 +564,25 @@ private final class NativeMenuSwitchRow: NSView {
         titleLabel.font = NSFont.menuFont(ofSize: 0)
         titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.sizeToFit()
         titleLabel.frame = NSRect(x: NativeMenuMetrics.labelX,
-                                  y: 0,
+                                  y: floor((NativeMenuMetrics.rowHeight -
+                                      titleLabel.frame.height) / 2),
                                   width: 170,
-                                  height: NativeMenuMetrics.rowHeight)
+                                  height: titleLabel.frame.height)
         titleLabel.alignment = .left
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
-        toggle.controlSize = .mini
-        toggle.state = state
-        toggle.isEnabled = isEnabled
-        toggle.target = target
-        toggle.action = action
-        toggle.sizeToFit()
-        toggle.frame.origin = NSPoint(
-            x: NativeMenuMetrics.width - NativeMenuMetrics.horizontalInset - toggle.frame.width,
-            y: floor((NativeMenuMetrics.rowHeight - toggle.frame.height) / 2)
+        let controlSize = hostingView.fittingSize
+        hostingView.frame = NSRect(
+            x: NativeMenuMetrics.width - NativeMenuMetrics.horizontalInset - controlSize.width,
+            y: floor((NativeMenuMetrics.rowHeight - controlSize.height) / 2),
+            width: controlSize.width,
+            height: controlSize.height
         )
-        toggle.autoresizingMask = [.minXMargin]
-        addSubview(toggle)
+        hostingView.autoresizingMask = [.minXMargin]
+        addSubview(hostingView)
 
         setAccessibilityRole(.checkBox)
         setAccessibilityLabel(title)
@@ -521,18 +593,15 @@ private final class NativeMenuSwitchRow: NSView {
     }
 
     func update(state: NSControl.StateValue, isEnabled: Bool) {
-        if toggle.state != state {
-            toggle.state = state
-        }
-        toggle.isEnabled = isEnabled
+        model.update(isOn: state == .on, isEnabled: isEnabled)
         iconView.contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor
         titleLabel.textColor = isEnabled ? .labelColor : .disabledControlTextColor
     }
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if toggle.isEnabled && bounds.contains(point) && !toggle.frame.contains(point) {
-            toggle.performClick(self)
+        if model.isEnabled && bounds.contains(point) && !hostingView.frame.contains(point) {
+            model.setFromUser(!model.isOn)
         }
     }
 }
@@ -697,10 +766,19 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         return image
     }
 
+    private func preferVisibleImage(_ item: NSMenuItem) {
+#if compiler(>=6.4)
+        if #available(macOS 27.0, *) {
+            item.preferredImageVisibility = .visible
+        }
+#endif
+    }
+
     private func nativeInfoItem(tag: NativeMenuTag) -> NSMenuItem {
         let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         item.tag = tag.rawValue
         item.isEnabled = false
+        preferVisibleImage(item)
         return item
     }
 
@@ -711,6 +789,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.target = self
         item.image = nativeSymbol(symbol)
+        preferVisibleImage(item)
         return item
     }
 
@@ -720,7 +799,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
                                   state: NSControl.StateValue,
                                   isEnabled: Bool,
                                   action: Selector) -> NSMenuItem {
-        let item = NSMenuItem()
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.tag = tag.rawValue
         item.isEnabled = true
         item.view = NativeMenuSwitchRow(title: title,
@@ -769,6 +848,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
                                  keyEquivalent: "")
         details.tag = NativeMenuTag.details.rawValue
         details.image = nativeSymbol("info.circle")
+        preferVisibleImage(details)
         details.submenu = NSMenu(title: localized("Details", "详细信息"))
         details.submenu?.delegate = self
         menu.addItem(details)
@@ -805,6 +885,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
                 let detail = NSMenuItem(title: title, action: nil, keyEquivalent: "")
                 detail.image = nativeSymbol(symbol)
                 detail.isEnabled = false
+                preferVisibleImage(detail)
                 submenu.addItem(detail)
             }
         }
@@ -812,6 +893,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             let error = NSMenuItem(title: interfaceError, action: nil, keyEquivalent: "")
             error.image = nativeSymbol("exclamationmark.triangle")
             error.isEnabled = false
+            preferVisibleImage(error)
             submenu.addItem(error)
         }
         if !submenu.items.isEmpty {
@@ -835,6 +917,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             guard let item = menu.item(withTag: tag.rawValue) else { continue }
             item.title = content.title
             item.image = nativeSymbol(content.symbol)
+            preferVisibleImage(item)
         }
         menu.item(withTag: 109)?.isHidden = authorizationState != .required
 
@@ -848,18 +931,18 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             .update(state: LaunchAgentManager.isInstalled ? .on : .off, isEnabled: true)
     }
 
-    @objc private func nativeSetConnection(_ sender: NSSwitch) {
-        let requested = sender.state == .on
+    @objc private func nativeSetConnection(_ sender: NativeMenuToggleModel) {
+        let requested = sender.isOn
         if !setConnectionEnabled(requested) {
-            sender.state = requested ? .off : .on
+            sender.isOn.toggle()
         }
         updateNativeVisibleContent()
     }
 
-    @objc private func nativeSetLaunchAtLogin(_ sender: NSSwitch) {
-        let requested = sender.state == .on
+    @objc private func nativeSetLaunchAtLogin(_ sender: NativeMenuToggleModel) {
+        let requested = sender.isOn
         if !setLaunchAtLoginEnabled(requested) {
-            sender.state = requested ? .off : .on
+            sender.isOn.toggle()
         }
         updateNativeVisibleContent()
     }
