@@ -37,6 +37,9 @@ jobs:
 
           Scripts/build-package "${GITHUB_REF_NAME#v}" \
             "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg"
+          ! pkgutil --payload-files \
+            "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg" \
+            | grep -Eq '(^|/)\._'
 
           (
             cd dist

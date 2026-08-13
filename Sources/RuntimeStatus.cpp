@@ -100,6 +100,57 @@ std::string serialize(const RuntimeStatus& status) {
 
 } // namespace
 
+bool hasRuntimeStatusTransition(const RuntimeStatus& previous,
+                                const RuntimeStatus& current) {
+    return previous.state != current.state ||
+           previous.device != current.device ||
+           previous.deviceAddress != current.deviceAddress ||
+           previous.hostInterface != current.hostInterface ||
+           previous.detail != current.detail ||
+           previous.connectedSince != current.connectedSince ||
+           previous.controlAvailable != current.controlAvailable;
+}
+
+RuntimeStatusPublicationPolicy::RuntimeStatusPublicationPolicy(
+    std::chrono::steady_clock::duration periodicInterval)
+    : periodicInterval_(periodicInterval) {}
+
+bool RuntimeStatusPublicationPolicy::shouldPublish(
+    const RuntimeStatus& status,
+    std::chrono::steady_clock::time_point now,
+    bool force) const {
+    if (force || !lastPublishedStatus_.has_value() ||
+        hasRuntimeStatusTransition(lastPublishedStatus_.value(), status)) {
+        return true;
+    }
+    return now - lastPublishedAt_ >= periodicInterval_;
+}
+
+void RuntimeStatusPublicationPolicy::didPublish(
+    const RuntimeStatus& status,
+    std::chrono::steady_clock::time_point now) {
+    lastPublishedStatus_ = status;
+    lastPublishedAt_ = now;
+}
+
+RuntimeStatusPublisher::RuntimeStatusPublisher(
+    std::chrono::steady_clock::duration periodicInterval)
+    : policy_(periodicInterval) {}
+
+bool RuntimeStatusPublisher::publish(const RuntimeStatus& status,
+                                     std::string& error,
+                                     bool force) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!policy_.shouldPublish(status, now, force)) {
+        return true;
+    }
+    if (!publishRuntimeStatus(status, error)) {
+        return false;
+    }
+    policy_.didPublish(status, now);
+    return true;
+}
+
 bool publishRuntimeStatus(const RuntimeStatus& status, std::string& error) {
     if (mkdir(kStatusDirectory, 0755) != 0 && errno != EEXIST) {
         error = "cannot create runtime status directory: " + std::string(std::strerror(errno));

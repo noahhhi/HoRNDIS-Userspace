@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.2
+VERSION ?= 0.3.3
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -33,6 +33,7 @@ STATUS_ICONSET := $(BUILD_DIR)/HoRNDISStatus.iconset
 STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
 STATUS_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-status-,$(STATUS_ARCHS))
 TEST_TARGET := $(BUILD_DIR)/rndis-protocol-tests
+RUNTIME_STATUS_TEST := $(BUILD_DIR)/runtime-status-tests
 STATUS_SWITCH_PROBE := $(BUILD_DIR)/status-switch-appearance-probe
 APP_LANGUAGE_PROBE := $(BUILD_DIR)/app-language-probe
 MENU_UI_CONTRACT_TEST := $(BUILD_DIR)/menu-ui-contract-tests
@@ -91,6 +92,10 @@ $(TEST_TARGET): Tests/RNDISProtocolTests.cpp Sources/RNDISProtocol.cpp Sources/R
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) Tests/RNDISProtocolTests.cpp Sources/RNDISProtocol.cpp -o $@
 
+$(RUNTIME_STATUS_TEST): Tests/RuntimeStatusTests.cpp Sources/RuntimeStatus.cpp Sources/RuntimeStatus.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/RuntimeStatusTests.cpp Sources/RuntimeStatus.cpp -o $@
+
 $(STATUS_SWITCH_PROBE): Tests/StatusSwitchAppearanceProbe.swift
 	@mkdir -p $(@D)
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx13.0 \
@@ -106,8 +111,9 @@ $(MENU_UI_CONTRACT_TEST): Tests/MenuUIContractTests.swift
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
 		-framework Foundation $< -o $@
 
-test: $(TEST_TARGET) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
+test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
 	$(TEST_TARGET)
+	$(RUNTIME_STATUS_TEST)
 	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift
 	$(STATUS_SWITCH_PROBE) "$(BUILD_DIR)/status-switch-appearance.png"
 	$(APP_LANGUAGE_PROBE) "$(STATUS_APP)"

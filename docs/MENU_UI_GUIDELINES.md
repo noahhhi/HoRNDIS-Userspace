@@ -75,6 +75,23 @@ trailing alignment, and vertical rhythm. Individual SF Symbol ink can have
 different optical bounds; align symbols through the shared layout frame rather
 than distorting glyphs to equal visible widths.
 
+## Live status and persistence contract
+
+- While the menu is visible, refresh the displayed service state, connection
+  duration, and transmitted/received totals from a fresh service snapshot once
+  per second. This cadence is a product requirement, not a best-effort target.
+- The privileged service may coalesce counter-only status-file writes while the
+  menu is closed. Opening the menu must temporarily restore one-second status
+  publication, and closing it must automatically release that observation
+  lease without requiring privileged work.
+- Publish device attachment/removal, connected/paused/waiting/error transitions,
+  and connection commands immediately; never hold them for the background
+  counter-write interval. Refresh authorization UI immediately after an
+  install or repair operation rather than coupling it to status-file cadence.
+- If reduced background persistence, event-driven supervision, or another
+  performance optimization prevents reliable one-second visible refresh or
+  immediate transitions, remove that optimization.
+
 On systems that provide `ConcentricRectangle`, interactive selections next to
 the window edge use concentric corners so the system derives the inner radius
 from the actual container and inset. Older systems use a continuous rounded

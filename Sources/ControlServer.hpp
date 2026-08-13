@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include <optional>
 #include <string>
+#include <vector>
 
 namespace horndis {
 
 enum class ControlCommand {
     connect,
     disconnect,
+    observe,
 };
 
 class ControlServer {
@@ -20,7 +21,7 @@ public:
     ControlServer& operator=(const ControlServer&) = delete;
 
     bool start(std::string& error);
-    std::optional<ControlCommand> pollCommand();
+    std::vector<ControlCommand> pollCommands();
     void close();
 
 private:

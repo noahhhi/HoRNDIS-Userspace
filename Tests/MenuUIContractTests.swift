@@ -38,6 +38,10 @@ private enum MenuUIContractTests {
             "MenuBarExtra",
             ".menuBarExtraStyle(.window)",
             "UserDefaults.standard.stringArray(forKey: \"AppleLanguages\")",
+            "Timer(timeInterval: 1,",
+            "RunLoop.main.add(refreshTimer, forMode: .eventTracking)",
+            "if menuIsOpen && snapshot.state == .connected",
+            "ControlClient.send(\"observe\\n\")",
         ]
         for fragment in requiredFragments {
             precondition(source.contains(fragment),

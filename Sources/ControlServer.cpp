@@ -75,33 +75,42 @@ bool ControlServer::start(std::string& error) {
     return true;
 }
 
-std::optional<ControlCommand> ControlServer::pollCommand() {
+std::vector<ControlCommand> ControlServer::pollCommands() {
+    std::vector<ControlCommand> commands;
     if (socket_ < 0) {
-        return std::nullopt;
-    }
-    const int client = accept(socket_, nullptr, nullptr);
-    if (client < 0) {
-        return std::nullopt;
-    }
-    if (!isConsoleUser(client)) {
-        (void)::close(client);
-        return std::nullopt;
+        return commands;
     }
 
-    char buffer[32]{};
-    const ssize_t count = read(client, buffer, sizeof(buffer) - 1);
-    (void)::close(client);
-    if (count <= 0) {
-        return std::nullopt;
+    // Drain a bounded batch so a visible menu's observation renewals cannot
+    // fill the listen queue or delay a later connect/disconnect command. The
+    // bound prevents a client from monopolizing the USB forwarding loop.
+    constexpr size_t kMaximumBatchSize = 16;
+    for (size_t index = 0; index < kMaximumBatchSize; ++index) {
+        const int client = accept(socket_, nullptr, nullptr);
+        if (client < 0) {
+            break;
+        }
+        if (!isConsoleUser(client)) {
+            (void)::close(client);
+            continue;
+        }
+
+        char buffer[32]{};
+        const ssize_t count = read(client, buffer, sizeof(buffer) - 1);
+        (void)::close(client);
+        if (count <= 0) {
+            continue;
+        }
+        const std::string command(buffer, static_cast<size_t>(count));
+        if (command.starts_with("connect")) {
+            commands.push_back(ControlCommand::connect);
+        } else if (command.starts_with("disconnect")) {
+            commands.push_back(ControlCommand::disconnect);
+        } else if (command.starts_with("observe")) {
+            commands.push_back(ControlCommand::observe);
+        }
     }
-    const std::string command(buffer, static_cast<size_t>(count));
-    if (command.starts_with("connect")) {
-        return ControlCommand::connect;
-    }
-    if (command.starts_with("disconnect")) {
-        return ControlCommand::disconnect;
-    }
-    return std::nullopt;
+    return commands;
 }
 
 void ControlServer::close() {

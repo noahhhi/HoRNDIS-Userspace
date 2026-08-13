@@ -4,14 +4,12 @@
 **/.DS_Store
 *.xcuserstate
 
-# Local coding-agent state is never a release input. The repository root
-# AGENTS.md is intentionally versioned as the contributor/project guide.
+# Local coding-agent state is never a release input.
 AGENT.md
 AGENTS.md
 CLAUDE.md
 **/AGENT.md
 **/AGENTS.md
 **/CLAUDE.md
-!/AGENTS.md
 .codex/
 **/.codex/

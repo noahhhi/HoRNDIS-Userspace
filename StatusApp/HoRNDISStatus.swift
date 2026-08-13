@@ -869,6 +869,12 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
 
     @objc private func refresh() {
         snapshot = readSnapshot()
+        if menuIsOpen && snapshot.state == .connected {
+            // A short renewable lease keeps visible traffic counters at the
+            // menu's one-second cadence. If the menu closes or the app exits,
+            // the service automatically returns to its low-write cadence.
+            try? ControlClient.send("observe\n")
+        }
         authorizationState = ServiceAuthorizationManager.state
         if let pending = pendingConnectionState {
             let reachedRequestedState = pending
@@ -911,7 +917,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
         }
         popoverModel.quit = { [weak self] in self?.quit() }
         popoverModel.didAppear = { [weak self] in
-            self?.menuIsOpen = true
+            self?.beginVisibleObservation()
         }
         popoverModel.didDisappear = { [weak self] in
             self?.menuIsOpen = false
@@ -921,6 +927,16 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
                 }
                 self.popoverModel.detailsExpanded = false
             }
+        }
+    }
+
+    private func beginVisibleObservation() {
+        let wasAlreadyOpen = menuIsOpen
+        menuIsOpen = true
+        if !wasAlreadyOpen {
+            // Start the renewable service observation lease immediately;
+            // do not wait for the next one-second timer tick.
+            refresh()
         }
     }
 
@@ -1091,7 +1107,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
     }
 
     func popoverWillShow(_ notification: Notification) {
-        menuIsOpen = true
+        beginVisibleObservation()
         installOutsideClickMonitors()
     }
 

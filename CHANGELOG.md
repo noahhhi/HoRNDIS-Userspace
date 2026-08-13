@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.3 - 2026-08-13
+
+- Preserve the menu's required one-second live refresh while reducing
+  counter-only status-file writes to a five-second cadence when the menu is
+  closed; device, service, error, and user-requested transitions remain
+  immediate.
+- Replace the privileged supervisor's 250 ms child polling with event-driven
+  waiting, eliminating its idle CPU, wakeups, and I/O without changing the
+  one-time authorization or automatic restart model.
+- Add a renewable, unprivileged observation lease and bounded control-command
+  batching so opening the menu restores fresh one-second traffic snapshots
+  without delaying connect or disconnect commands.
+- Add runtime publication tests and make the one-second visible-refresh
+  behavior part of the documented and automated menu contract.
+
 ## 0.3.2 - 2026-08-13
 
 - Restore the native SwiftUI `MenuBarExtra` interaction baseline, including
