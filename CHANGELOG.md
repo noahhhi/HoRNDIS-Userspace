@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.4 - 2026-08-13
+
+- Make package upgrades, menu restarts, and direct app launches converge on a
+  single menu bar process, including older standalone instances that are not
+  owned by the login LaunchAgent.
+- Wait for graceful termination before relaunch and use macOS force termination
+  only for an unresponsive stale instance, preventing duplicate status icons
+  after an in-place upgrade.
+
 ## 0.3.3 - 2026-08-13
 
 - Preserve the menu's required one-second live refresh while reducing

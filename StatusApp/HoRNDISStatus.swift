@@ -273,6 +273,8 @@ private func readSnapshot() -> Snapshot {
 }
 
 private enum LaunchAgentManager {
+    private static let bundleIdentifier = "io.github.noahhhi.horndis.status"
+
     static var plistURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/\(launchAgentLabel).plist")
@@ -344,11 +346,37 @@ private enum LaunchAgentManager {
 
     static var isRunning: Bool {
         NSRunningApplication.runningApplications(
-            withBundleIdentifier: "io.github.noahhhi.horndis.status"
+            withBundleIdentifier: bundleIdentifier
         ).contains { $0.processIdentifier != getpid() }
     }
 
+    static func terminateOtherInstances() {
+        var applications = NSRunningApplication.runningApplications(
+            withBundleIdentifier: bundleIdentifier
+        ).filter { $0.processIdentifier != getpid() }
+        guard !applications.isEmpty else { return }
+
+        for application in applications {
+            application.terminate()
+        }
+        let gracefulDeadline = Date().addingTimeInterval(3)
+        while Date() < gracefulDeadline {
+            applications = applications.filter { !$0.isTerminated }
+            if applications.isEmpty { return }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        for application in applications where !application.isTerminated {
+            application.forceTerminate()
+        }
+        let forcedDeadline = Date().addingTimeInterval(2)
+        while Date() < forcedDeadline && applications.contains(where: { !$0.isTerminated }) {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
     static func openOnce() throws {
+        guard !isRunning else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-n", Bundle.main.bundleURL.path]
@@ -369,6 +397,7 @@ private enum LaunchAgentManager {
         }
         let target = "gui/\(getuid())/\(launchAgentLabel)"
         if !isLoaded {
+            terminateOtherInstances()
             try runLaunchctl(["bootstrap", "gui/\(getuid())", plistURL.path])
         }
         try runLaunchctl(["kickstart", target])
@@ -377,11 +406,7 @@ private enum LaunchAgentManager {
     static func stop() throws {
         let target = "gui/\(getuid())/\(launchAgentLabel)"
         try runLaunchctl(["bootout", target], allowFailure: true)
-        for application in NSRunningApplication.runningApplications(
-            withBundleIdentifier: "io.github.noahhhi.horndis.status"
-        ) where application.processIdentifier != getpid() {
-            application.terminate()
-        }
+        terminateOtherInstances()
     }
 
     static func restart() throws {
@@ -393,6 +418,7 @@ private enum LaunchAgentManager {
         try writeConfiguration()
         let target = "gui/\(getuid())/\(launchAgentLabel)"
         try runLaunchctl(["bootout", target], allowFailure: true)
+        terminateOtherInstances()
         try runLaunchctl(["bootstrap", "gui/\(getuid())", plistURL.path])
         try runLaunchctl(["kickstart", "-k", target])
     }
@@ -840,6 +866,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        LaunchAgentManager.terminateOtherInstances()
         NSApp.setActivationPolicy(.accessory)
         refresh()
         if #unavailable(macOS 13.0) {

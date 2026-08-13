@@ -42,6 +42,7 @@ private enum MenuUIContractTests {
             "RunLoop.main.add(refreshTimer, forMode: .eventTracking)",
             "if menuIsOpen && snapshot.state == .connected",
             "ControlClient.send(\"observe\\n\")",
+            "LaunchAgentManager.terminateOtherInstances()",
         ]
         for fragment in requiredFragments {
             precondition(source.contains(fragment),

@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.3
+VERSION ?= 0.3.4
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
