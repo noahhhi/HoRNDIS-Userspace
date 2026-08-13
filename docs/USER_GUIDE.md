@@ -2,12 +2,12 @@
 
 ## Requirements
 
-- macOS 11 or later. Apple Silicon and Intel are supported by the build and release process.
+- macOS 11 or later on Apple silicon or Intel.
 - An Android device that exposes a supported RNDIS USB control/data pair.
 - A data-capable USB cable.
 - Administrator authorization once when installing or upgrading the network service.
 
-No paid Apple Developer account, DriverKit entitlement, reduced-security boot mode, or SIP change is needed.
+HoRNDIS runs in user space rather than as a kernel extension, so users do not need to reduce boot security or disable SIP.
 
 ## Install
 
@@ -15,11 +15,16 @@ No paid Apple Developer account, DriverKit entitlement, reduced-security boot mo
 brew install --cask noahhhi/tap/horndis
 ```
 
-The Homebrew Cask installs the prebuilt universal release package, including `/Applications/HoRNDIS Status.app`, the `horndis` command, and its manual page. The package asks for one standard Installer authorization, copies the network daemon to `/Library/PrivilegedHelperTools`, starts its LaunchDaemon, and installs the current user's menu bar LaunchAgent. It does not compile locally or require Xcode or Command Line Tools.
+Or install the package directly:
 
-Homebrew nevertheless lists Command Line Tools or Xcode as a requirement for a fully supported Homebrew installation. If Homebrew is not already available, install the same release `.pkg` directly; HoRNDIS itself needs no developer tools on the target Mac.
+1. Download the universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases).
+2. Try to open the downloaded `.pkg`.
+3. If macOS blocks it, open **System Settings → Privacy & Security**.
+4. Click **Open Anyway** for the HoRNDIS package.
+5. Enter an administrator password when prompted, then complete the installation.
 
-The universal `.pkg` attached to GitHub Releases is the same package used by the Cask. It is not notarized because this personal project has no paid Developer ID, so macOS may require **Open Anyway** in Privacy & Security.
+> [!IMPORTANT]
+> This project currently uses a free Apple Developer account, which cannot provide the paid Developer ID certificate required to sign and notarize the installer for public distribution. macOS may therefore block the first launch until you approve it with **Open Anyway**. You do not need to disable SIP or reduce system security.
 
 Enable **USB tethering** in Android settings. The service will discover the RNDIS interfaces automatically while leaving a separate ADB interface available.
 

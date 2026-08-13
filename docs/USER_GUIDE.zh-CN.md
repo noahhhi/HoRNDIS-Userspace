@@ -2,12 +2,12 @@
 
 ## 系统要求
 
-- macOS 11 或更高版本；构建及发布流程同时支持 Apple Silicon 与 Intel。
+- macOS 11 或更高版本，支持 Apple 芯片与 Intel Mac。
 - Android 设备能够提供 RNDIS USB 控制和数据接口。
 - 支持数据传输的 USB 线缆。
 - 安装或升级后台网络服务时进行一次管理员认证。
 
-不需要付费 Apple Developer 账户、DriverKit 特殊权限、降低启动安全性或关闭 SIP。
+HoRNDIS 运行在用户态，而不是作为内核扩展运行，因此用户无需降低启动安全性或关闭 SIP。
 
 ## 安装
 
@@ -15,11 +15,16 @@
 brew install --cask noahhhi/tap/horndis
 ```
 
-Homebrew Cask 会安装预编译的通用 Release 包，其中包括 `/Applications/HoRNDIS Status.app`、`horndis` 命令和 man 手册。安装包只请求一次标准 Installer 管理员认证，把网络服务复制到 `/Library/PrivilegedHelperTools`、启动 LaunchDaemon，并为当前用户安装菜单栏 LaunchAgent。它不会在本机编译，也不需要 Xcode 或 Command Line Tools。
+或直接安装 PKG：
 
-不过，Homebrew 仍把 Command Line Tools 或 Xcode 列为“受支持 Homebrew 安装”的系统要求。如果电脑尚未安装 Homebrew，可直接安装同一个 Release `.pkg`；HoRNDIS 本身不需要目标 Mac 上存在开发工具。
+1. 从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 安装包。
+2. 先尝试打开下载的 `.pkg`。
+3. 如果 macOS 阻止打开，进入“**系统设置 → 隐私与安全性**”。
+4. 找到 HoRNDIS 安装包的提示，点击“**仍要打开**”。
+5. 根据提示输入管理员密码，然后完成安装。
 
-GitHub Releases 中的通用 `.pkg` 与 Cask 使用的是同一个安装包。由于免费开发者账户无法提供 Developer ID 公证，macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”。
+> [!IMPORTANT]
+> 本项目目前使用免费 Apple Developer 账户，无法获得公开分发安装包所需的付费 Developer ID 证书，因此不能对安装包进行签名和公证。macOS 可能会阻止首次打开，需要按上述步骤点击“**仍要打开**”。此过程不需要关闭 SIP 或降低系统安全级别。
 
 在 Android 设置中打开 **USB 网络共享**。服务会自动发现 RNDIS 接口；如果手机还提供独立的 ADB 接口，ADB 可以同时使用。
 

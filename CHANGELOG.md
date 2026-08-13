@@ -72,7 +72,7 @@
 
 ## 0.1.0 - 2026-08-11
 
-- First entitlement-free macOS user-space RNDIS implementation.
+- First macOS RNDIS implementation to run in user space rather than the kernel, without requiring SIP to be disabled.
 - IOUSBHost discovery and exclusive ownership of only the RNDIS control/data interfaces.
 - RNDIS initialize, query, packet filter, aggregated packet RX, and bulk TX/RX.
 - feth/BPF virtual Ethernet bridge with DHCP configuration.

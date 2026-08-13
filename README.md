@@ -5,9 +5,9 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-Entitlement-free Android USB tethering for modern macOS. It keeps System Integrity Protection enabled and moves the entire RNDIS data path out of the kernel.
+HoRNDIS runs the Android USB tethering data path in user space rather than the kernel, so it works on modern macOS without disabling System Integrity Protection (SIP).
 
-[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md) · [Menu UI contract](docs/MENU_UI_GUIDELINES.md)
+[User guide](docs/USER_GUIDE.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md) · [Menu UI contract](docs/MENU_UI_GUIDELINES.md)
 
 > **Preview:** RNDIS is implemented and tested with a Pixel 4 XL. CDC-ECM and CDC-NCM devices are detected so future transports can be added without replacing the macOS network backend.
 
@@ -15,17 +15,22 @@ Current reference test: Apple Silicon Mac running macOS 27.0, Pixel 4 XL running
 
 ## Install
 
-The recommended Homebrew installation downloads the prebuilt universal package; it does not compile on the target Mac and does not require Xcode or Command Line Tools:
+### Homebrew
 
 ```sh
 brew install --cask noahhhi/tap/horndis
 ```
 
-The Cask uses the same universal `.pkg` as GitHub Releases. One standard Installer authorization places **HoRNDIS Status.app** in `/Applications`, installs the CLI and manual pages, activates the fixed root service, starts the per-user menu app, and enables it at login. It never stores the administrator credential. If the menu app is quit, reopen it from Applications, Launchpad, or Spotlight, or run `horndis start`.
+### Package installer
 
-The HoRNDIS Cask itself can be installed without developer tools because it only downloads a prebuilt package. Homebrew still lists Xcode Command Line Tools or Xcode as a requirement for a fully supported Homebrew installation; use the release `.pkg` directly when Homebrew is not already installed.
+1. Download the universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases).
+2. Try to open the downloaded `.pkg`.
+3. If macOS blocks it, open **System Settings → Privacy & Security**.
+4. Click **Open Anyway** for the HoRNDIS package.
+5. Enter an administrator password when prompted, then complete the installation.
 
-Alternatively, download the identical universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) and open it. Neither installation path compiles locally. This personal project cannot notarize downloads without a paid Developer ID, so macOS may require an explicit **Open Anyway** confirmation in Privacy & Security.
+> [!IMPORTANT]
+> This project currently uses a free Apple Developer account, which cannot provide the paid Developer ID certificate required to sign and notarize the installer for public distribution. macOS may therefore block the first launch until you approve it with **Open Anyway**. You do not need to disable SIP or reduce system security.
 
 Enable **USB tethering** on Android, then verify:
 
@@ -51,7 +56,7 @@ Universal manual ZIP archives are also attached to GitHub Releases for advanced 
 
 ## Why this exists
 
-The original [HoRNDIS](https://github.com/jwise/HoRNDIS) is a kernel extension. Current macOS releases require reduced security or disabled SIP to load legacy, unnotarized kernel code. DriverKit is safer, but distributing a DriverKit/System Extension network driver requires Apple-granted entitlements that are unavailable to a free Personal Team.
+The original [HoRNDIS](https://github.com/jwise/HoRNDIS) is a kernel extension. Current macOS releases require reduced security or disabled SIP to load legacy, unnotarized kernel code. HoRNDIS Userspace instead keeps the RNDIS data path outside the kernel, so it can run on modern macOS without reducing boot security or disabling SIP.
 
 HoRNDIS Userspace uses APIs already shipped by macOS:
 
@@ -78,7 +83,7 @@ unprivileged data agent
 - `IOUSBHost` claims only the RNDIS control and data interfaces. ADB stays on its separate USB interface.
 - A paired `feth` device gives macOS a normal Ethernet interface while BPF exchanges raw frames with the daemon.
 - The network adapter first uses public `SystemConfiguration`. Current macOS does not expose dynamically cloned feth devices there, so it falls back to the system `ipconfig` DHCP client and recreates that temporary service on every connection.
-- No kext, dext, restricted entitlement, recovery-mode change, or SIP change is required.
+- The RNDIS implementation runs in user space rather than as a kernel extension, so no recovery-mode change or SIP change is required.
 - A small root supervisor performs only the operations macOS reserves for root: create/configure feth, start DHCP, and open one BPF descriptor. It passes that already-open descriptor as a capability to a permanently unprivileged child running as the current console user.
 - USB discovery, RNDIS parsing, packet forwarding, runtime status, and menu control all execute in that unprivileged data agent. The root supervisor does not parse device-controlled traffic.
 - The optional menu bar process is also unprivileged and isolated from the data path. Quitting it cannot disconnect the USB network.
@@ -104,9 +109,11 @@ man horndis
 
 The bridge defaults to `feth99` for macOS and `feth98` for the daemon. Root launch environments can override them with `HORNDIS_HOST_INTERFACE` and `HORNDIS_TRANSPORT_INTERFACE`; values are restricted to `feth<number>` names.
 
-## Build
+## Development
 
 Requirements: macOS 11 or later, Xcode Command Line Tools or Xcode, and GNU Make. macOS 11–14 and Intel builds are best-effort compatibility targets; the current hardware validation is listed at the top of this document.
+
+End-user Homebrew and Release installations use the prebuilt universal `.pkg`; the following commands are only for developing or testing the project from source.
 
 ```sh
 make

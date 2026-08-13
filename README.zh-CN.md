@@ -5,9 +5,9 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-面向现代 macOS 的 Android USB 网络共享工具，无需受限 entitlement。它保持系统完整性保护（SIP）开启，并把完整的 RNDIS 数据路径移出内核。
+HoRNDIS 的 Android USB 网络共享数据路径运行在用户态而非内核态，因此可在现代 macOS 上运行，无需关闭系统完整性保护（SIP）。
 
-[English user guide](docs/USER_GUIDE.md) · [中文使用手册](docs/USER_GUIDE.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
+[用户手册](docs/USER_GUIDE.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
 
 > **预览版本：** RNDIS 已在 Pixel 4 XL 上实现并测试。工具也能识别 CDC-ECM 和 CDC-NCM 设备，以便未来在保留 macOS 网络后端的情况下增加新的传输协议。
 
@@ -15,17 +15,22 @@
 
 ## 安装
 
-推荐的 Homebrew 安装会下载预编译的通用安装包，不在目标 Mac 上编译，因此不需要 Xcode 或 Command Line Tools：
+### Homebrew
 
 ```sh
 brew install --cask noahhhi/tap/horndis
 ```
 
-Cask 使用与 GitHub Releases 相同的通用 `.pkg`。一次标准 Installer 授权会把 **HoRNDIS Status.app** 安装到 `/Applications`，安装命令行和 man 手册，启用固定的 root 服务，启动当前用户的菜单栏应用并设置登录时启动。管理员凭据不会被保存。退出菜单栏后，可以从“应用程序”、Launchpad 或 Spotlight 重新打开，也可以运行 `horndis start`。
+### PKG 安装包
 
-HoRNDIS Cask 本身只下载预编译安装包，可以在没有开发工具时安装；但 Homebrew 仍把 Xcode Command Line Tools 或 Xcode 列为“受支持 Homebrew 安装”的系统要求。尚未安装 Homebrew 的电脑可直接使用 Release `.pkg`，完全不需要开发工具。
+1. 从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 安装包。
+2. 先尝试打开下载的 `.pkg`。
+3. 如果 macOS 阻止打开，进入“**系统设置 → 隐私与安全性**”。
+4. 找到 HoRNDIS 安装包的提示，点击“**仍要打开**”。
+5. 根据提示输入管理员密码，然后完成安装。
 
-也可以从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载完全相同的通用 `.pkg` 并打开；两种路径都不会在本机编译。个人项目没有付费 Developer ID，无法对下载内容进行公证，因此 macOS 可能要求在“隐私与安全性”中明确选择“仍要打开”。
+> [!IMPORTANT]
+> 本项目目前使用免费 Apple Developer 账户，无法获得公开分发安装包所需的付费 Developer ID 证书，因此不能对安装包进行签名和公证。macOS 可能会阻止首次打开，需要按上述步骤点击“**仍要打开**”。此过程不需要关闭 SIP 或降低系统安全级别。
 
 在 Android 上开启 **USB 网络共享**，然后验证：
 
@@ -51,7 +56,7 @@ GitHub Releases 也提供适合高级用户的通用手动 ZIP 包。
 
 ## 项目缘由
 
-原版 [HoRNDIS](https://github.com/jwise/HoRNDIS) 使用内核扩展。当前 macOS 必须降低安全策略或关闭 SIP 才能载入旧式、未公证的内核代码。DriverKit 更安全，但分发 DriverKit/System Extension 网络驱动需要 Apple 单独批准的 entitlement，免费 Personal Team 无法获得。
+原版 [HoRNDIS](https://github.com/jwise/HoRNDIS) 使用内核扩展。当前 macOS 必须降低安全策略或关闭 SIP 才能载入旧式、未公证的内核代码。HoRNDIS Userspace 则把 RNDIS 数据路径放在内核之外的用户态运行，因此可在现代 macOS 上使用，无需降低启动安全性或关闭 SIP。
 
 HoRNDIS Userspace 使用 macOS 已内置的接口：
 
@@ -78,7 +83,7 @@ Android RNDIS 控制端点与批量传输端点
 - `IOUSBHost` 只占用 RNDIS 的控制接口和数据接口，ADB 继续使用独立的 USB 接口。
 - 一对 `feth` 设备为 macOS 提供普通以太网接口，BPF 则与守护进程交换原始帧。
 - 网络适配器会先尝试公开的 `SystemConfiguration`。当前 macOS 不会在那里暴露动态克隆的 feth 设备，因此工具会回退到系统 `ipconfig` DHCP 客户端，并在每次连接时重建这个临时服务。
-- 不需要 kext、dext、受限 entitlement、恢复模式设置或关闭 SIP。
+- RNDIS 实现运行在用户态，而不是作为内核扩展运行，因此无需修改恢复模式设置或关闭 SIP。
 - 小型 root 监控进程仅执行 macOS 限定 root 完成的操作：创建和配置 feth、启动 DHCP、打开一个 BPF 描述符。然后它把已经打开的描述符作为能力传递给以当前控制台用户身份永久运行的非特权子进程。
 - USB 发现、RNDIS 解析、数据包转发、运行状态和菜单控制都在非特权数据代理中完成，root 监控进程不会解析设备控制的数据。
 - 可选菜单栏进程同样不带特权，并与数据路径隔离；退出菜单栏不会断开 USB 网络。
@@ -104,9 +109,11 @@ man horndis
 
 桥接默认使用 `feth99` 作为 macOS 端接口，使用 `feth98` 作为守护进程端接口。root 启动环境可以通过 `HORNDIS_HOST_INTERFACE` 和 `HORNDIS_TRANSPORT_INTERFACE` 覆盖它们；取值仅允许 `feth<number>` 格式。
 
-## 构建
+## 开发
 
 要求：macOS 11 或更高版本、Xcode Command Line Tools 或 Xcode，以及 GNU Make。macOS 11–14 和 Intel 构建属于尽力兼容目标；当前经过硬件验证的环境列在本文开头。
+
+普通用户通过 Homebrew 或 Release 安装时使用预先构建的通用 `.pkg`；以下命令仅用于从源码开发或测试项目。
 
 ```sh
 make
