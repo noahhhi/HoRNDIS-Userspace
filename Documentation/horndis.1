@@ -1,4 +1,4 @@
-.TH HORNDIS 1 "2026-08-12" "HoRNDIS Userspace" "User Commands"
+.TH HORNDIS 1 "2026-08-15" "HoRNDIS Userspace" "User Commands"
 .SH NAME
 horndis \- Android USB tethering for modern macOS
 .SH SYNOPSIS
@@ -33,6 +33,12 @@ Restart the menu bar app.
 .B status
 Report network-service, connection, menu-app, and login-startup state.
 .TP
+.BI "diagnostics " "[FILE]"
+Create a locally generated, privacy-preserving diagnostic report containing system,
+service, USB, network, installation-permission, and recent service-log evidence.
+With no FILE, write the report to standard output. No administrator access or
+automatic upload is used; review the report before sharing it.
+.TP
 .B probe
 List detected RNDIS, CDC-ECM, and CDC-NCM USB networking functions.
 .TP
@@ -58,10 +64,12 @@ Print the installed version.
 .SH ENVIRONMENT
 .TP
 .B HORNDIS_HOST_INTERFACE
-macOS-facing feth interface. The default is feth99.
+macOS-facing feth override. Set both interface variables together. By default,
+HoRNDIS selects an unused pair automatically, preferring feth99/feth98.
 .TP
 .B HORNDIS_TRANSPORT_INTERFACE
-BPF-facing feth interface. The default is feth98.
+BPF-facing feth override. An explicitly requested interface must not already
+exist, so HoRNDIS never adopts another application's interface.
 .SH FILES
 .TP
 .B /Applications/HoRNDIS Status.app

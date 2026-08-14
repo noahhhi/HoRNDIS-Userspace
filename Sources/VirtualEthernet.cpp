@@ -17,6 +17,7 @@
 #include <array>
 #include <cctype>
 #include <iostream>
+#include <set>
 #include <sstream>
 
 extern char** environ;
@@ -238,17 +239,32 @@ VirtualEthernet::~VirtualEthernet() {
     close();
 }
 
-bool VirtualEthernet::createInterface(const std::string& interface,
-                                      bool& created,
-                                      std::string& error) {
-    created = false;
-    if (if_nametoindex(interface.c_str()) != 0) {
-        return true;
-    }
-    if (!runCommand("/sbin/ifconfig", {interface, "create"}, false, error)) {
+bool VirtualEthernet::createPair(const EthernetInterfacePair& pair, std::string& error) {
+    if (if_nametoindex(pair.host.c_str()) != 0 ||
+        if_nametoindex(pair.transport.c_str()) != 0) {
+        error = "refusing to use an existing virtual Ethernet interface (" + pair.host + ", " +
+                pair.transport + ")";
         return false;
     }
-    created = true;
+
+    if (!runCommand("/sbin/ifconfig", {pair.host, "create"}, false, error)) {
+        return false;
+    }
+    if (!runCommand("/sbin/ifconfig", {pair.transport, "create"}, false, error)) {
+        std::string ignored;
+        (void)runCommand("/sbin/ifconfig", {pair.host, "destroy"}, true, ignored);
+        return false;
+    }
+
+    hostInterface_ = pair.host;
+    transportInterface_ = pair.transport;
+    ownsInterfaces_ = true;
+    if (!runCommand("/sbin/ifconfig", {pair.host, "peer", pair.transport}, false, error) ||
+        !configureInterface(pair.host, {"mtu", "1500", "up"}, error) ||
+        !configureInterface(pair.transport, {"mtu", "1500", "up"}, error)) {
+        close();
+        return false;
+    }
     return true;
 }
 
@@ -260,25 +276,33 @@ bool VirtualEthernet::open(const std::string& hostInterface,
         error = "the Ethernet bridge must run as root (use sudo or a root launch service)";
         return false;
     }
-    if (hostInterface == transportInterface || !isSafeFethName(hostInterface) ||
-        !isSafeFethName(transportInterface)) {
-        error = "virtual Ethernet interface names must be distinct feth<number> names";
-        return false;
+    EthernetInterfacePair selected;
+    if (hostInterface.empty() && transportInterface.empty()) {
+        std::set<std::string> occupied;
+        for (const auto& candidate : automaticInterfaceCandidates()) {
+            if (if_nametoindex(candidate.host.c_str()) != 0) {
+                occupied.insert(candidate.host);
+            }
+            if (if_nametoindex(candidate.transport.c_str()) != 0) {
+                occupied.insert(candidate.transport);
+            }
+        }
+        const auto automatic = selectAutomaticInterfacePair(occupied);
+        if (!automatic.has_value()) {
+            error = "no free feth interface pair is available";
+            return false;
+        }
+        selected = automatic.value();
+    } else {
+        if (hostInterface.empty() || transportInterface.empty() ||
+            hostInterface == transportInterface || !isSafeFethName(hostInterface) ||
+            !isSafeFethName(transportInterface)) {
+            error = "virtual Ethernet interface overrides must be two distinct feth<number> names";
+            return false;
+        }
+        selected = {hostInterface, transportInterface};
     }
-    bool hostCreated = false;
-    bool transportCreated = false;
-    if (!createInterface(hostInterface, hostCreated, error) ||
-        !createInterface(transportInterface, transportCreated, error)) {
-        return false;
-    }
-    const bool pairAlreadyExists = !hostCreated && !transportCreated;
-    if ((!pairAlreadyExists &&
-         !runCommand("/sbin/ifconfig",
-                     {hostInterface, "peer", transportInterface},
-                     false,
-                     error)) ||
-        !configureInterface(hostInterface, {"mtu", "1500", "up"}, error) ||
-        !configureInterface(transportInterface, {"mtu", "1500", "up"}, error)) {
+    if (!createPair(selected, error)) {
         return false;
     }
 
@@ -290,11 +314,13 @@ bool VirtualEthernet::open(const std::string& hostInterface,
         }
         if (errno != EBUSY && errno != ENOENT) {
             error = "cannot open " + path + ": " + std::strerror(errno);
+            close();
             return false;
         }
     }
     if (bpf_ < 0) {
         error = "no free Berkeley Packet Filter device is available";
+        close();
         return false;
     }
 
@@ -302,9 +328,9 @@ bool VirtualEthernet::open(const std::string& hostInterface,
     (void)ioctl(bpf_, BIOCSBLEN, &requestedBufferSize);
 
     ifreq request{};
-    std::strncpy(request.ifr_name, transportInterface.c_str(), sizeof(request.ifr_name) - 1);
+    std::strncpy(request.ifr_name, transportInterface_.c_str(), sizeof(request.ifr_name) - 1);
     if (ioctl(bpf_, BIOCSETIF, &request) < 0) {
-        error = "cannot bind BPF to " + transportInterface + ": " + std::strerror(errno);
+        error = "cannot bind BPF to " + transportInterface_ + ": " + std::strerror(errno);
         close();
         return false;
     }
@@ -331,17 +357,14 @@ bool VirtualEthernet::open(const std::string& hostInterface,
     readBuffer_.resize(actualBufferSize);
     readOffset_ = readBuffer_.size();
     bpfBufferSize_ = actualBufferSize;
-    hostInterface_ = hostInterface;
-    transportInterface_ = transportInterface;
-
     std::string persistentError;
-    if (!configurePersistentDHCP(hostInterface, persistentError)) {
-        std::cerr << "horndis: SystemConfiguration could not register " << hostInterface
+    if (!configurePersistentDHCP(hostInterface_, persistentError)) {
+        std::cerr << "horndis: SystemConfiguration could not register " << hostInterface_
                   << " (" << persistentError << "); using the macOS DHCP compatibility path\n";
-        if (!runCommand("/usr/sbin/ipconfig", {"set", hostInterface, "DHCP"}, false, error)) {
-            close();
-            return false;
-        }
+    }
+    if (!refreshDHCP(error)) {
+        close();
+        return false;
     }
     return true;
 }
@@ -387,6 +410,23 @@ bool VirtualEthernet::flush(std::string& error) {
     }
     readBuffer_.resize(bpfBufferSize_);
     readOffset_ = readBuffer_.size();
+    return true;
+}
+
+bool VirtualEthernet::refreshDHCP(std::string& error) {
+    if (geteuid() != 0) {
+        error = "DHCP refresh requires the root network supervisor";
+        return false;
+    }
+    if (hostInterface_.empty() || transportInterface_.empty()) {
+        error = "the Ethernet bridge is not open";
+        return false;
+    }
+    if (!configureInterface(hostInterface_, {"mtu", "1500", "up"}, error) ||
+        !configureInterface(transportInterface_, {"mtu", "1500", "up"}, error) ||
+        !runCommand("/usr/sbin/ipconfig", {"set", hostInterface_, "DHCP"}, false, error)) {
+        return false;
+    }
     return true;
 }
 
@@ -477,6 +517,19 @@ void VirtualEthernet::close() {
     readBuffer_.clear();
     readOffset_ = 0;
     bpfBufferSize_ = 0;
+    if (ownsInterfaces_ && geteuid() == 0) {
+        std::string ignored;
+        if (!hostInterface_.empty()) {
+            (void)runCommand(
+                "/usr/sbin/ipconfig", {"set", hostInterface_, "NONE"}, true, ignored);
+            (void)runCommand("/sbin/ifconfig", {hostInterface_, "destroy"}, true, ignored);
+        }
+        if (!transportInterface_.empty()) {
+            (void)runCommand(
+                "/sbin/ifconfig", {transportInterface_, "destroy"}, true, ignored);
+        }
+    }
+    ownsInterfaces_ = false;
     hostInterface_.clear();
     transportInterface_.clear();
 }

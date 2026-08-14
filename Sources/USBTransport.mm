@@ -165,6 +165,9 @@ struct RNDISUSBTransport::Impl {
     __strong IOUSBHostInterface* data = nil;
     __strong IOUSBHostPipe* bulkIn = nil;
     __strong IOUSBHostPipe* bulkOut = nil;
+    __strong NSMutableData* bulkInData = nil;
+    __strong NSMutableData* bulkOutData = nil;
+    std::vector<uint8_t> bulkOutPacket;
     USBDeviceInfo device;
 };
 
@@ -414,75 +417,87 @@ bool RNDISUSBTransport::initialize(std::vector<uint8_t>& deviceAddress, std::str
 bool RNDISUSBTransport::readEthernetFrame(std::vector<uint8_t>& frame,
                                          bool& timedOut,
                                          std::string& error) {
-    timedOut = false;
-    if (!pendingFrames_.empty()) {
-        frame = std::move(pendingFrames_.front());
-        pendingFrames_.pop_front();
-        return true;
-    }
-    if (impl_->bulkIn == nil) {
-        error = "RNDIS bulk input endpoint is not open";
-        return false;
-    }
+    @autoreleasepool {
+        timedOut = false;
+        if (!pendingFrames_.empty()) {
+            frame = std::move(pendingFrames_.front());
+            pendingFrames_.pop_front();
+            return true;
+        }
+        if (impl_->bulkIn == nil) {
+            error = "RNDIS bulk input endpoint is not open";
+            return false;
+        }
 
-    NSMutableData* data = [NSMutableData dataWithLength:maxTransferSize_];
-    NSUInteger transferred = 0;
-    NSError* nsError = nil;
-    if (![impl_->bulkIn sendIORequestWithData:data
-                             bytesTransferred:&transferred
-                            completionTimeout:1.0
-                                        error:&nsError]) {
-        if (isTimeout(nsError)) {
+        if (impl_->bulkInData == nil || impl_->bulkInData.length != maxTransferSize_) {
+            impl_->bulkInData = [[NSMutableData alloc] initWithLength:maxTransferSize_];
+        }
+        NSUInteger transferred = 0;
+        NSError* nsError = nil;
+        if (![impl_->bulkIn sendIORequestWithData:impl_->bulkInData
+                                 bytesTransferred:&transferred
+                                completionTimeout:1.0
+                                            error:&nsError]) {
+            if (isTimeout(nsError)) {
+                timedOut = true;
+                return false;
+            }
+            error = "RNDIS bulk read failed: " + nsErrorDescription(nsError);
+            return false;
+        }
+        if (transferred == 0) {
             timedOut = true;
             return false;
         }
-        error = "RNDIS bulk read failed: " + nsErrorDescription(nsError);
-        return false;
-    }
-    if (transferred == 0) {
-        timedOut = true;
-        return false;
-    }
-    const auto* begin = static_cast<const uint8_t*>(data.bytes);
-    auto frames = rndis::unwrapEthernetFrames(std::span(begin, transferred), error);
-    if (frames.empty()) {
-        if (error.empty()) {
-            timedOut = true;
+        const auto* begin = static_cast<const uint8_t*>(impl_->bulkInData.bytes);
+        auto frames = rndis::unwrapEthernetFrames(std::span(begin, transferred), error);
+        if (frames.empty()) {
+            if (error.empty()) {
+                timedOut = true;
+            }
+            return false;
         }
-        return false;
+        frame = std::move(frames.front());
+        for (size_t index = 1; index < frames.size(); ++index) {
+            pendingFrames_.push_back(std::move(frames[index]));
+        }
+        return true;
     }
-    frame = std::move(frames.front());
-    for (size_t index = 1; index < frames.size(); ++index) {
-        pendingFrames_.push_back(std::move(frames[index]));
-    }
-    return true;
 }
 
 bool RNDISUSBTransport::writeEthernetFrame(const std::vector<uint8_t>& frame, std::string& error) {
-    if (impl_->bulkOut == nil) {
-        error = "RNDIS bulk output endpoint is not open";
-        return false;
+    @autoreleasepool {
+        if (impl_->bulkOut == nil) {
+            error = "RNDIS bulk output endpoint is not open";
+            return false;
+        }
+        if (!rndis::wrapEthernetFrame(frame, impl_->bulkOutPacket)) {
+            error = "Ethernet frame is too large for an RNDIS packet";
+            return false;
+        }
+        if (impl_->bulkOutData == nil) {
+            impl_->bulkOutData = [[NSMutableData alloc] initWithCapacity:2048];
+        }
+        impl_->bulkOutData.length = impl_->bulkOutPacket.size();
+        std::copy(impl_->bulkOutPacket.begin(),
+                  impl_->bulkOutPacket.end(),
+                  static_cast<uint8_t*>(impl_->bulkOutData.mutableBytes));
+
+        NSUInteger transferred = 0;
+        NSError* nsError = nil;
+        if (![impl_->bulkOut sendIORequestWithData:impl_->bulkOutData
+                                  bytesTransferred:&transferred
+                                 completionTimeout:5.0
+                                             error:&nsError]) {
+            error = "RNDIS bulk write failed: " + nsErrorDescription(nsError);
+            return false;
+        }
+        if (transferred != impl_->bulkOutPacket.size()) {
+            error = "RNDIS bulk write was only partially transferred";
+            return false;
+        }
+        return true;
     }
-    const auto packet = rndis::wrapEthernetFrame(frame);
-    if (packet.empty()) {
-        error = "Ethernet frame is too large for an RNDIS packet";
-        return false;
-    }
-    NSMutableData* data = [NSMutableData dataWithBytes:packet.data() length:packet.size()];
-    NSUInteger transferred = 0;
-    NSError* nsError = nil;
-    if (![impl_->bulkOut sendIORequestWithData:data
-                              bytesTransferred:&transferred
-                             completionTimeout:5.0
-                                         error:&nsError]) {
-        error = "RNDIS bulk write failed: " + nsErrorDescription(nsError);
-        return false;
-    }
-    if (transferred != packet.size()) {
-        error = "RNDIS bulk write was only partially transferred";
-        return false;
-    }
-    return true;
 }
 
 void RNDISUSBTransport::close() {
@@ -492,6 +507,10 @@ void RNDISUSBTransport::close() {
     }
     impl_->bulkIn = nil;
     impl_->bulkOut = nil;
+    impl_->bulkInData = nil;
+    impl_->bulkOutData = nil;
+    impl_->bulkOutPacket.clear();
+    impl_->bulkOutPacket.shrink_to_fit();
     if (impl_->data != nil) {
         [impl_->data destroy];
         impl_->data = nil;

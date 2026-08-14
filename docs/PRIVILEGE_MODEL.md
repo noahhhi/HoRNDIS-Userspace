@@ -12,10 +12,10 @@ Changing BPF device permissions, adding a broad passwordless sudo rule, or insta
 
 ```text
 root LaunchDaemon supervisor
-  ├─ create/configure feth98 ↔ feth99
-  ├─ start system DHCP on feth99
+  ├─ select and exclusively create an unused feth pair
+  ├─ start system DHCP on the selected macOS-facing feth
   ├─ open and bind one BPF descriptor
-  └─ fork + exec, pass only that descriptor
+  └─ fork + exec, pass that descriptor and a fixed DHCP-refresh channel
                     │
                     ▼
 console-user data agent
@@ -29,7 +29,11 @@ console-user Swift menu bar
   └─ read status and request pause/resume
 ```
 
-The child permanently drops supplementary groups, group ID, and user ID before `exec`. It cannot reopen BPF devices, reconfigure interfaces, modify the installed helper, or regain root. The root supervisor waits for and restarts the child but does not receive or parse USB-controlled bytes.
+The child permanently drops supplementary groups, group ID, and user ID before `exec`. It cannot reopen BPF devices, reconfigure interfaces, modify the installed helper, or regain root. After each successful RNDIS initialization, it sends one fixed `refresh DHCP` request and waits for a one-byte success/failure response before reporting the session as connected. The request carries no interface name, command arguments, packet content, or other device-controlled data. The root supervisor validates the fixed request, raises both prevalidated feth interfaces, restarts the macOS DHCP client, and then blocks on the channel again. It never receives or parses USB-controlled bytes.
+
+This per-session handshake prevents a boot-order race in which macOS networking clears the temporary DHCP state after the LaunchDaemon's initial setup but before an Android device connects. If the privileged refresh fails, the data agent publishes an error and retries instead of leaving the menu indefinitely at **Configuring DHCP**.
+
+Automatic selection prefers `feth99`/`feth98`, then scans downward in odd/even pairs. A pair is eligible only when both names are absent. HoRNDIS never adopts, reconfigures, or destroys an interface that already existed; it removes only the pair created by the current supervisor. Explicit environment overrides remain available but must name two absent, distinct `feth<number>` interfaces.
 
 The runtime directory is assigned to the current console user after privileged setup with mode `0700`. Status and control endpoints use mode `0600`. The local control socket additionally validates the connecting peer against the current console user.
 

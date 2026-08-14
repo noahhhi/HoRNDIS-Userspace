@@ -1,6 +1,6 @@
 # Contributing
 
-Bug reports should include the macOS version, Mac architecture, Android model/version, `horndis probe`, the relevant section of `/var/log/horndis.log`, and the USB interface descriptors from `ioreg -r -c IOUSBHostInterface -l`.
+Bug reports must follow the [bug-reporting workflow](docs/BUG_REPORTING.md). Reproduce the problem, create a fresh report with **HoRNDIS → Details → Save Diagnostic Report…** or `horndis diagnostics FILE`, review it, and attach it to the required upload field in the GitHub bug form. Blank external issues are disabled. A screenshot or raw `/var/log/horndis.log` alone is not sufficient.
 
 Before opening a pull request:
 

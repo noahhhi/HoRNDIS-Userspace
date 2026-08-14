@@ -49,6 +49,7 @@ std::vector<uint8_t> makeInitialize(uint32_t requestId, uint32_t maxTransferSize
 std::vector<uint8_t> makeQuery(uint32_t requestId, uint32_t oid);
 std::vector<uint8_t> makeSetPacketFilter(uint32_t requestId, uint32_t filter);
 std::vector<uint8_t> makeKeepalive(uint32_t requestId);
+bool wrapEthernetFrame(std::span<const uint8_t> frame, std::vector<uint8_t>& message);
 std::vector<uint8_t> wrapEthernetFrame(std::span<const uint8_t> frame);
 
 std::optional<Completion> parseCompletion(std::span<const uint8_t> message, std::string& error);

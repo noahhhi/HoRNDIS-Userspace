@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.4
+VERSION ?= 0.3.5
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -17,7 +17,8 @@ CODESIGN := codesign
 
 SOURCES := Sources/main.mm Sources/RNDISProtocol.cpp Sources/USBTransport.mm \
 	Sources/VirtualEthernet.cpp Sources/ServiceManager.cpp Sources/RuntimeStatus.cpp \
-	Sources/ControlServer.cpp
+	Sources/ControlServer.cpp Sources/Diagnostics.mm Sources/SupervisorChannel.cpp \
+	Sources/InterfaceSelection.cpp
 OBJECTS := $(SOURCES:%=$(BUILD_DIR)/%.o)
 TARGET := $(BUILD_DIR)/horndis
 STATUS_TARGET := $(BUILD_DIR)/horndis-status
@@ -34,6 +35,13 @@ STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
 STATUS_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-status-,$(STATUS_ARCHS))
 TEST_TARGET := $(BUILD_DIR)/rndis-protocol-tests
 RUNTIME_STATUS_TEST := $(BUILD_DIR)/runtime-status-tests
+SUPERVISOR_CHANNEL_TEST := $(BUILD_DIR)/supervisor-channel-tests
+DHCP_RECONNECT_CONTRACT_TEST := $(BUILD_DIR)/dhcp-reconnect-contract-tests
+INTERFACE_SELECTION_TEST := $(BUILD_DIR)/interface-selection-tests
+INTERFACE_LIFECYCLE_CONTRACT_TEST := $(BUILD_DIR)/interface-lifecycle-contract-tests
+DIAGNOSTICS_PRIVACY_CONTRACT_TEST := $(BUILD_DIR)/diagnostics-privacy-contract-tests
+DEVICE_ALIASES_TEST := $(BUILD_DIR)/device-aliases-tests
+USB_TRANSPORT_MEMORY_CONTRACT_TEST := $(BUILD_DIR)/usb-transport-memory-contract-tests
 STATUS_SWITCH_PROBE := $(BUILD_DIR)/status-switch-appearance-probe
 APP_LANGUAGE_PROBE := $(BUILD_DIR)/app-language-probe
 MENU_UI_CONTRACT_TEST := $(BUILD_DIR)/menu-ui-contract-tests
@@ -96,6 +104,34 @@ $(RUNTIME_STATUS_TEST): Tests/RuntimeStatusTests.cpp Sources/RuntimeStatus.cpp S
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) Tests/RuntimeStatusTests.cpp Sources/RuntimeStatus.cpp -o $@
 
+$(SUPERVISOR_CHANNEL_TEST): Tests/SupervisorChannelTests.cpp Sources/SupervisorChannel.cpp Sources/SupervisorChannel.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/SupervisorChannelTests.cpp Sources/SupervisorChannel.cpp -o $@
+
+$(DHCP_RECONNECT_CONTRACT_TEST): Tests/DHCPReconnectContractTests.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/DHCPReconnectContractTests.cpp -o $@
+
+$(INTERFACE_SELECTION_TEST): Tests/InterfaceSelectionTests.cpp Sources/InterfaceSelection.cpp Sources/InterfaceSelection.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/InterfaceSelectionTests.cpp Sources/InterfaceSelection.cpp -o $@
+
+$(INTERFACE_LIFECYCLE_CONTRACT_TEST): Tests/InterfaceLifecycleContractTests.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/InterfaceLifecycleContractTests.cpp -o $@
+
+$(DIAGNOSTICS_PRIVACY_CONTRACT_TEST): Tests/DiagnosticsPrivacyContractTests.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+$(DEVICE_ALIASES_TEST): Tests/DeviceAliasesTests.cpp Sources/DeviceAliases.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+$(USB_TRANSPORT_MEMORY_CONTRACT_TEST): Tests/USBTransportMemoryContractTests.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $< -o $@
+
 $(STATUS_SWITCH_PROBE): Tests/StatusSwitchAppearanceProbe.swift
 	@mkdir -p $(@D)
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx13.0 \
@@ -111,9 +147,16 @@ $(MENU_UI_CONTRACT_TEST): Tests/MenuUIContractTests.swift
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
 		-framework Foundation $< -o $@
 
-test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
+test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RECONNECT_CONTRACT_TEST) $(INTERFACE_SELECTION_TEST) $(INTERFACE_LIFECYCLE_CONTRACT_TEST) $(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) $(DEVICE_ALIASES_TEST) $(USB_TRANSPORT_MEMORY_CONTRACT_TEST) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
 	$(TEST_TARGET)
 	$(RUNTIME_STATUS_TEST)
+	$(SUPERVISOR_CHANNEL_TEST)
+	$(DHCP_RECONNECT_CONTRACT_TEST) Sources/main.mm Sources/VirtualEthernet.cpp
+	$(INTERFACE_SELECTION_TEST)
+	$(INTERFACE_LIFECYCLE_CONTRACT_TEST) Sources/VirtualEthernet.cpp Sources/main.mm StatusApp/HoRNDISStatus.swift
+	$(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) Sources/main.mm Sources/Diagnostics.mm .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/config.yml
+	$(DEVICE_ALIASES_TEST)
+	$(USB_TRANSPORT_MEMORY_CONTRACT_TEST) Sources/USBTransport.mm
 	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift
 	$(STATUS_SWITCH_PROBE) "$(BUILD_DIR)/status-switch-appearance.png"
 	$(APP_LANGUAGE_PROBE) "$(STATUS_APP)"

@@ -7,6 +7,9 @@
 #include "ServiceManager.hpp"
 #include "RuntimeStatus.hpp"
 #include "ControlServer.hpp"
+#include "DeviceAliases.hpp"
+#include "Diagnostics.hpp"
+#include "SupervisorChannel.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -26,6 +29,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -98,6 +102,7 @@ void printUsage() {
               << "  horndis stop        Quit the menu bar app; networking stays active\n"
               << "  horndis restart     Restart the menu bar app\n"
               << "  horndis status      Show network and menu app status\n"
+              << "  horndis diagnostics [FILE]  Create a privacy-preserving diagnostic report\n"
               << "  horndis probe       List USB network interfaces (no root required)\n"
               << "  horndis usb-test    Claim and initialize the first RNDIS device\n"
               << "  horndis run         Run the RNDIS-to-Ethernet bridge (root required)\n"
@@ -105,8 +110,9 @@ void printUsage() {
               << "  horndis help [COMMAND]\n"
               << "  horndis --version   Print the version\n\n"
               << "Environment:\n"
-              << "  HORNDIS_HOST_INTERFACE       macOS-facing feth interface (default feth99)\n"
-              << "  HORNDIS_TRANSPORT_INTERFACE  BPF-facing feth interface (default feth98)\n";
+              << "  HORNDIS_HOST_INTERFACE       macOS-facing feth override (set both names)\n"
+              << "  HORNDIS_TRANSPORT_INTERFACE  BPF-facing feth override (set both names)\n"
+              << "  By default HoRNDIS selects an unused feth pair automatically.\n";
 }
 
 int printCommandHelp(const std::string& command) {
@@ -128,6 +134,12 @@ int printCommandHelp(const std::string& command) {
         std::cout << "Usage: horndis status\n\n"
                   << "Reports privileged service installation/runtime state and the current "
                      "user's menu app/login-startup state. No administrator access is needed.\n";
+    } else if (command == "diagnostics") {
+        std::cout << "Usage: horndis diagnostics [FILE]\n\n"
+                  << "Collects a privacy-preserving diagnostic report containing macOS, service, USB, "
+                     "network, installation-permission, and recent service-log evidence. With "
+                     "no FILE, writes the report to standard output. Review the report before "
+                     "attaching it to a GitHub bug report. No administrator access is needed.\n";
     } else if (command == "service") {
         std::cout << "Usage: sudo horndis service install|uninstall\n\n"
                   << "Low-level interface for the root LaunchDaemon. Prefer `horndis install` "
@@ -264,12 +276,17 @@ int printStatus() {
         NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSString* state = [json isKindOfClass:[NSDictionary class]] ? json[@"state"] : nil;
         NSString* device = [json isKindOfClass:[NSDictionary class]] ? json[@"device"] : nil;
+        NSString* hostInterface =
+            [json isKindOfClass:[NSDictionary class]] ? json[@"host_interface"] : nil;
         if ([state isKindOfClass:[NSString class]]) {
             std::cout << "Connection: " << state.UTF8String;
             if ([device isKindOfClass:[NSString class]] && device.length > 0) {
                 std::cout << " (" << device.UTF8String << ")";
             }
             std::cout << '\n';
+        }
+        if ([hostInterface isKindOfClass:[NSString class]] && hostInterface.length > 0) {
+            std::cout << "Interface: " << hostInterface.UTF8String << '\n';
         }
     }
     if (menuToolPath().empty()) {
@@ -285,16 +302,13 @@ int probe() {
         std::cout << "No RNDIS, CDC-ECM, or CDC-NCM USB network interface found.\n";
         return 2;
     }
-    for (const auto& device : devices) {
-        std::cout << horndis::protocolName(device.protocol) << " "
-                  << (device.product.empty() ? "USB network device" : device.product) << " "
+    for (size_t index = 0; index < devices.size(); ++index) {
+        const auto& device = devices[index];
+        std::cout << "device " << (index + 1) << ": "
+                  << horndis::protocolName(device.protocol) << " "
                   << hexadecimal(device.vendorId, 4) << ":" << hexadecimal(device.productId, 4)
-                  << " location=" << hexadecimal(device.locationId, 8)
                   << " interfaces=" << static_cast<unsigned>(device.controlInterfaceNumber) << "/"
                   << static_cast<unsigned>(device.dataInterfaceNumber);
-        if (!device.serial.empty()) {
-            std::cout << " serial=" << device.serial;
-        }
         std::cout << (device.supported ? " [supported]" : " [detected; backend pending]") << '\n';
     }
     return 0;
@@ -327,14 +341,14 @@ int usbTest() {
         std::cerr << error << '\n';
         return 1;
     }
-    std::cout << "Initialized " << device->product << " RNDIS interface; device address "
-              << formatAddress(address) << ".\n";
+    std::cout << "Initialized device 1 RNDIS interface.\n";
     return 0;
 }
 
 int runAgent(int bpfDescriptor,
              const std::string& hostInterface,
-             const std::string& transportInterface) {
+             const std::string& transportInterface,
+             int supervisorDescriptor) {
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
     horndis::VirtualEthernet ethernet;
@@ -358,6 +372,7 @@ int runAgent(int bpfDescriptor,
     logLine("waiting for an Android RNDIS USB tethering interface");
     bool userPaused = false;
     auto observeUntil = std::chrono::steady_clock::time_point{};
+    horndis::DeviceAliasRegistry deviceAliases;
 
     while (gRunning.load()) {
         @autoreleasepool {
@@ -378,6 +393,7 @@ int runAgent(int bpfDescriptor,
             if (userPaused) {
                 runtimeStatus.state = "paused";
                 runtimeStatus.device.clear();
+                runtimeStatus.deviceAlias.clear();
                 runtimeStatus.deviceAddress.clear();
                 runtimeStatus.detail = "Connection paused from the menu bar";
                 runtimeStatus.receivedBytes = 0;
@@ -422,9 +438,9 @@ int runAgent(int bpfDescriptor,
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 continue;
             }
-
             runtimeStatus.state = "connecting";
             runtimeStatus.device = device->product;
+            runtimeStatus.deviceAlias.clear();
             runtimeStatus.deviceAddress.clear();
             runtimeStatus.detail = "Initializing the RNDIS interface";
             runtimeStatus.receivedBytes = 0;
@@ -442,6 +458,7 @@ int runAgent(int bpfDescriptor,
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 runtimeStatus.state = "waiting";
                 runtimeStatus.device.clear();
+                runtimeStatus.deviceAlias.clear();
                 runtimeStatus.detail = "Waiting for Android USB tethering";
                 publishStatus(statusPublisher, runtimeStatus);
                 continue;
@@ -455,13 +472,42 @@ int runAgent(int bpfDescriptor,
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 runtimeStatus.state = "waiting";
                 runtimeStatus.device.clear();
+                runtimeStatus.deviceAlias.clear();
                 runtimeStatus.detail = "Waiting for Android USB tethering";
                 publishStatus(statusPublisher, runtimeStatus);
                 continue;
             }
 
-            logLine("connected " + device->product + " (" + formatAddress(deviceAddress) +
-                    ") to " + hostInterface);
+            std::string aliasKey;
+            if (!device->serial.empty()) {
+                aliasKey = "usb:" + device->serial;
+            } else if (!deviceAddress.empty()) {
+                aliasKey = "rndis:" + formatAddress(deviceAddress);
+            } else {
+                aliasKey = "fallback:" + std::to_string(device->vendorId) + ":" +
+                    std::to_string(device->productId) + ":" +
+                    std::to_string(device->locationId);
+            }
+            const size_t deviceNumber = deviceAliases.aliasFor(aliasKey);
+            runtimeStatus.deviceAlias = "device " + std::to_string(deviceNumber);
+
+            error.clear();
+            if (!horndis::requestDHCPRefresh(supervisorDescriptor, error)) {
+                logLine(error);
+                runtimeStatus.state = "error";
+                runtimeStatus.detail = error;
+                publishStatus(statusPublisher, runtimeStatus);
+                usb.close();
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                runtimeStatus.state = "waiting";
+                runtimeStatus.device.clear();
+                runtimeStatus.deviceAlias.clear();
+                runtimeStatus.detail = "Waiting for Android USB tethering";
+                publishStatus(statusPublisher, runtimeStatus);
+                continue;
+            }
+
+            logLine("connected device " + std::to_string(deviceNumber) + " to " + hostInterface);
 
             std::atomic_bool sessionRunning{true};
             std::atomic<uint64_t> receivedBytes{0};
@@ -566,6 +612,7 @@ int runAgent(int bpfDescriptor,
                                    : "device disconnected; waiting to reconnect");
                 runtimeStatus.state = userPaused ? "paused" : "waiting";
                 runtimeStatus.device.clear();
+                runtimeStatus.deviceAlias.clear();
                 runtimeStatus.deviceAddress.clear();
                 runtimeStatus.detail = userPaused
                                            ? "Connection paused from the menu bar"
@@ -581,6 +628,7 @@ int runAgent(int bpfDescriptor,
     logLine("stopped");
     runtimeStatus.state = "stopped";
     runtimeStatus.device.clear();
+    runtimeStatus.deviceAlias.clear();
     runtimeStatus.deviceAddress.clear();
     runtimeStatus.detail = "HoRNDIS service is stopped";
     runtimeStatus.receivedBytes = 0;
@@ -649,18 +697,50 @@ pid_t spawnAgent(const std::string& executable,
                  const std::string& hostInterface,
                  const std::string& transportInterface,
                  const ConsoleUser& identity,
+                 int& supervisorDescriptor,
                  std::string& error) {
+    supervisorDescriptor = -1;
+    int channel[2]{-1, -1};
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, channel) != 0) {
+        error = "cannot create the root supervisor channel: " +
+                std::string(std::strerror(errno));
+        return -1;
+    }
+    const int suppressBrokenPipe = 1;
+    if (setsockopt(channel[0], SOL_SOCKET, SO_NOSIGPIPE,
+                   &suppressBrokenPipe, sizeof(suppressBrokenPipe)) != 0 ||
+        setsockopt(channel[1], SOL_SOCKET, SO_NOSIGPIPE,
+                   &suppressBrokenPipe, sizeof(suppressBrokenPipe)) != 0) {
+        error = "cannot secure the root supervisor channel: " +
+                std::string(std::strerror(errno));
+        (void)close(channel[0]);
+        (void)close(channel[1]);
+        return -1;
+    }
+    const int supervisorFlags = fcntl(channel[0], F_GETFD);
+    if (supervisorFlags < 0 ||
+        fcntl(channel[0], F_SETFD, supervisorFlags | FD_CLOEXEC) != 0) {
+        error = "cannot protect the root supervisor channel: " +
+                std::string(std::strerror(errno));
+        (void)close(channel[0]);
+        (void)close(channel[1]);
+        return -1;
+    }
     const int descriptorFlags = fcntl(bpfDescriptor, F_GETFD);
     if (descriptorFlags < 0 ||
         fcntl(bpfDescriptor, F_SETFD, descriptorFlags & ~FD_CLOEXEC) != 0) {
         error = "cannot prepare the BPF capability for the data agent: " +
                 std::string(std::strerror(errno));
+        (void)close(channel[0]);
+        (void)close(channel[1]);
         return -1;
     }
 
     const std::string descriptor = std::to_string(bpfDescriptor);
+    const std::string supervisor = std::to_string(channel[1]);
     const pid_t child = fork();
     if (child == 0) {
+        (void)close(channel[0]);
         const gid_t group = identity.group;
         if (setgroups(1, &group) != 0 || setgid(identity.group) != 0 ||
             setuid(identity.user) != 0) {
@@ -672,17 +752,55 @@ pid_t spawnAgent(const std::string& executable,
               descriptor.c_str(),
               hostInterface.c_str(),
               transportInterface.c_str(),
+              supervisor.c_str(),
               static_cast<char*>(nullptr));
         _exit(127);
     }
     const int savedError = errno;
+    (void)close(channel[1]);
     (void)fcntl(bpfDescriptor, F_SETFD, descriptorFlags);
     if (child < 0) {
+        (void)close(channel[0]);
         error = "cannot start the unprivileged data agent: " +
                 std::string(std::strerror(savedError));
         return -1;
     }
+    supervisorDescriptor = channel[0];
     return child;
+}
+
+void superviseAgentDHCP(int descriptor, horndis::VirtualEthernet& ethernet) {
+    while (gRunning.load()) {
+        horndis::SupervisorRequest request{};
+        bool closed = false;
+        std::string error;
+        if (!horndis::receiveSupervisorRequest(descriptor, request, closed, error)) {
+            logLine(error);
+            break;
+        }
+        if (closed) {
+            break;
+        }
+
+        bool success = false;
+        switch (request) {
+            case horndis::SupervisorRequest::refreshDHCP:
+                success = ethernet.refreshDHCP(error);
+                if (success) {
+                    logLine("refreshed DHCP on " + ethernet.hostInterface() +
+                            " for the new USB session");
+                } else {
+                    logLine("cannot refresh DHCP on " + ethernet.hostInterface() + ": " + error);
+                }
+                break;
+        }
+
+        std::string responseError;
+        if (!horndis::sendSupervisorResponse(descriptor, success, responseError)) {
+            logLine(responseError);
+            break;
+        }
+    }
 }
 
 int runBridge() {
@@ -692,28 +810,39 @@ int runBridge() {
     }
     const char* hostEnvironment = std::getenv("HORNDIS_HOST_INTERFACE");
     const char* transportEnvironment = std::getenv("HORNDIS_TRANSPORT_INTERFACE");
-    const std::string hostInterface = hostEnvironment != nullptr ? hostEnvironment : "feth99";
-    const std::string transportInterface =
-        transportEnvironment != nullptr ? transportEnvironment : "feth98";
+    if ((hostEnvironment == nullptr) != (transportEnvironment == nullptr)) {
+        logLine("HORNDIS_HOST_INTERFACE and HORNDIS_TRANSPORT_INTERFACE must be set together");
+        return 64;
+    }
+    const std::string requestedHost = hostEnvironment != nullptr ? hostEnvironment : "";
+    const std::string requestedTransport =
+        transportEnvironment != nullptr ? transportEnvironment : "";
 
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
     horndis::RuntimeStatus supervisorStatus;
     horndis::RuntimeStatusPublisher statusPublisher;
     supervisorStatus.state = "starting";
-    supervisorStatus.hostInterface = hostInterface;
+    supervisorStatus.hostInterface = requestedHost;
     supervisorStatus.detail = "Preparing the privileged network capability";
     publishStatus(statusPublisher, supervisorStatus);
 
     horndis::VirtualEthernet ethernet;
     std::string error;
-    if (!ethernet.open(hostInterface, transportInterface, error)) {
+    if (!ethernet.open(requestedHost, requestedTransport, error)) {
         logLine(error);
         supervisorStatus.state = "error";
         supervisorStatus.detail = error;
         publishStatus(statusPublisher, supervisorStatus);
         return 1;
     }
+    const std::string hostInterface = ethernet.hostInterface();
+    const std::string transportInterface = ethernet.transportInterface();
+    supervisorStatus.hostInterface = hostInterface;
+    supervisorStatus.detail = "Privileged network capability is ready";
+    publishStatus(statusPublisher, supervisorStatus, true);
+    logLine("selected " + hostInterface + " (macOS) and " + transportInterface +
+            " (transport)");
     const std::string executable = executablePath(error);
     if (executable.empty()) {
         logLine(error);
@@ -734,19 +863,24 @@ int runBridge() {
             logLine(error);
             return 1;
         }
+        int supervisorDescriptor = -1;
         const pid_t agent = spawnAgent(executable,
                                        ethernet.descriptor(),
                                        hostInterface,
                                        transportInterface,
                                        identity.value(),
+                                       supervisorDescriptor,
                                        error);
         if (agent < 0) {
             logLine(error);
             return 1;
         }
         gAgentPid = static_cast<sig_atomic_t>(agent);
-        logLine("started unprivileged data agent as uid " +
-                std::to_string(identity->user) + " (pid " + std::to_string(agent) + ")");
+        logLine("started unprivileged data agent for user (pid " +
+                std::to_string(agent) + ")");
+
+        superviseAgentDHCP(supervisorDescriptor, ethernet);
+        (void)close(supervisorDescriptor);
 
         int childStatus = 0;
         if (!gRunning.load()) {
@@ -802,7 +936,7 @@ int manageService(const std::string& action) {
 
 int main(int argc, char* argv[]) {
     @autoreleasepool {
-        if (argc == 5 && std::string(argv[1]) == "agent") {
+        if (argc == 6 && std::string(argv[1]) == "agent") {
             char* end = nullptr;
             errno = 0;
             const long descriptor = std::strtol(argv[2], &end, 10);
@@ -811,13 +945,34 @@ int main(int argc, char* argv[]) {
                 std::cerr << "invalid inherited BPF descriptor\n";
                 return 64;
             }
-            return runAgent(static_cast<int>(descriptor), argv[3], argv[4]);
+            char* supervisorEnd = nullptr;
+            errno = 0;
+            const long supervisorDescriptor = std::strtol(argv[5], &supervisorEnd, 10);
+            if (errno != 0 || supervisorEnd == argv[5] || *supervisorEnd != '\0' ||
+                supervisorDescriptor < 0 || supervisorDescriptor > INT_MAX ||
+                supervisorDescriptor == descriptor) {
+                std::cerr << "invalid inherited supervisor descriptor\n";
+                return 64;
+            }
+            return runAgent(static_cast<int>(descriptor),
+                            argv[3],
+                            argv[4],
+                            static_cast<int>(supervisorDescriptor));
         }
         if (argc == 3 && std::string(argv[1]) == "service") {
             return manageService(argv[2]);
         }
         if (argc == 3 && std::string(argv[1]) == "help") {
             return printCommandHelp(argv[2]);
+        }
+        if (argc == 3 && std::string(argv[1]) == "diagnostics") {
+            std::string error;
+            if (!horndis::writeDiagnosticReport(argv[2], HORNDIS_VERSION, error)) {
+                std::cerr << error << '\n';
+                return 1;
+            }
+            std::cout << "Diagnostic report written to " << argv[2] << '\n';
+            return 0;
         }
         if (argc != 2) {
             printUsage();
@@ -843,6 +998,10 @@ int main(int argc, char* argv[]) {
         }
         if (command == "status") {
             return printStatus();
+        }
+        if (command == "diagnostics") {
+            std::cout << horndis::buildDiagnosticReport(HORNDIS_VERSION);
+            return 0;
         }
         if (command == "probe") {
             return probe();

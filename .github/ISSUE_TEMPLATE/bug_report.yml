@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible HoRNDIS problem with the required diagnostic report
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve HoRNDIS. Before continuing, reproduce the problem and create a fresh report from **HoRNDIS → Details → Save Diagnostic Report…**, or run `horndis diagnostics ~/Desktop/HoRNDIS-Diagnostics.txt`.
+
+        The report does not collect account/full names, host or device names, USB serial numbers, device location IDs, MAC/IP addresses, hardware serial numbers, hardware UUIDs, packet contents, or credentials. Users appear only as `user`; connected devices use stable in-memory aliases such as `device 1`, while anonymous USB functions are numbered separately. Please still review it before uploading. Bug reports cannot be submitted without a diagnostic report.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed result and what you expected instead.
+      placeholder: Include the exact menu state or error text and whether USB tethering ever connected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Start from connecting the phone and enabling Android USB tethering.
+      placeholder: |
+        1. Connect …
+        2. Enable …
+        3. Observe …
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - GitHub Release PKG
+        - Homebrew Cask
+        - Local source build
+    validations:
+      required: true
+  - type: upload
+    id: diagnostics
+    attributes:
+      label: HoRNDIS diagnostic report (required)
+      description: Upload the fresh HoRNDIS-Diagnostics-*.txt generated after reproducing the problem. A raw horndis.log may be added, but does not replace the diagnostic report.
+    validations:
+      required: true
+      accept: ".txt,.log,.zip"
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add screenshots or details about VPNs, security software, custom ROMs, root modules, or recent macOS/Android changes when relevant.
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I reproduced the issue immediately before generating the attached report and reviewed the file for information I do not want to share.
+          required: true

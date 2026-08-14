@@ -28,6 +28,13 @@ int main() {
     const std::vector<uint8_t> oddLengthEthernet{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0x08,
                                                   0x00, 0xaa};
     const auto oddPacket = wrapEthernetFrame(oddLengthEthernet);
+    std::vector<uint8_t> reusablePacket;
+    assert(wrapEthernetFrame(oddLengthEthernet, reusablePacket));
+    assert(reusablePacket == oddPacket);
+    const auto* reusableStorage = reusablePacket.data();
+    assert(wrapEthernetFrame(ethernet, reusablePacket));
+    assert(reusablePacket == packet);
+    assert(reusablePacket.data() == reusableStorage);
     std::vector<uint8_t> aggregate = oddPacket;
     aggregate.insert(aggregate.end(), packet.begin(), packet.end());
     error.clear();
