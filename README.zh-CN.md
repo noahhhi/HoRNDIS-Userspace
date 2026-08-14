@@ -7,7 +7,7 @@
 
 HoRNDIS 的 Android USB 网络共享数据路径运行在用户态而非内核态，因此可在现代 macOS 上运行，无需关闭系统完整性保护（SIP）。
 
-[用户手册](docs/USER_GUIDE.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
+[用户手册](docs/USER_GUIDE.zh-CN.md) · [反馈 Bug](docs/BUG_REPORTING.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
 
 > **预览版本：** RNDIS 已在 Pixel 4 XL 上实现并测试。工具也能识别 CDC-ECM 和 CDC-NCM 设备，以便未来在保留 macOS 网络后端的情况下增加新的传输协议。
 
@@ -36,13 +36,13 @@ brew install --cask noahhhi/tap/horndis
 
 ```sh
 horndis probe
-ifconfig feth99
+horndis status
 curl https://ifconfig.me
 ```
 
 没有连接手机时，LaunchDaemon 会等待；USB 热插拔或共享模式变化后会自动重新连接。服务日志位于 `/var/log/horndis.log`。
 
-原生菜单显示 Android 设备、当前会话上下行总流量、连接时长、持久授权状态、**USB 网络共享**开关和登录时启动开关。若特权服务尚未安装，会额外显示“**授权并安装…**”，点击后由标准 macOS 管理员认证对话框执行固定的内置安装命令。菜单打开时可见数据每秒刷新一次。展开“**详细信息**”可查看 IP 地址、接口、设备 MAC、服务 PID、日志和可复制诊断信息。正常使用开关只与本地 Unix socket 通信，不再要求管理员密码。界面使用原生 window 风格 `MenuBarExtra`、mini switch、Disclosure 动画、SF Symbols、动态系统颜色及统一行几何；实现与视觉验收规则记录在[菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)中。
+原生菜单显示 Android 设备、当前会话上下行总流量、连接时长、持久授权状态、**USB 网络共享**开关和登录时启动开关。若特权服务尚未安装，会额外显示“**授权并安装…**”，点击后由标准 macOS 管理员认证对话框执行固定的内置安装命令。菜单打开时可见数据每秒刷新一次。展开“**详细信息**”可查看 IP 地址、接口、设备 MAC、服务 PID、服务日志、不采集个人身份信息的诊断报告生成器及必须附日志的 Bug 反馈入口。正常使用开关只与本地 Unix socket 通信，不再要求管理员密码。界面使用原生 window 风格 `MenuBarExtra`、mini switch、Disclosure 动画、SF Symbols、动态系统颜色及统一行几何；实现与视觉验收规则记录在[菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)中。
 
 卸载：
 
@@ -81,10 +81,10 @@ Android RNDIS 控制端点与批量传输端点
 ```
 
 - `IOUSBHost` 只占用 RNDIS 的控制接口和数据接口，ADB 继续使用独立的 USB 接口。
-- 一对 `feth` 设备为 macOS 提供普通以太网接口，BPF 则与守护进程交换原始帧。
+- 一对 `feth` 设备为 macOS 提供普通以太网接口，BPF 则与守护进程交换原始帧。HoRNDIS 会独占创建一对未使用的接口，优先选择 `feth99`/`feth98`；如果任一名称已被其他应用占用，就继续向下扫描。
 - 网络适配器会先尝试公开的 `SystemConfiguration`。当前 macOS 不会在那里暴露动态克隆的 feth 设备，因此工具会回退到系统 `ipconfig` DHCP 客户端，并在每次连接时重建这个临时服务。
 - RNDIS 实现运行在用户态，而不是作为内核扩展运行，因此无需修改恢复模式设置或关闭 SIP。
-- 小型 root 监控进程仅执行 macOS 限定 root 完成的操作：创建和配置 feth、启动 DHCP、打开一个 BPF 描述符。然后它把已经打开的描述符作为能力传递给以当前控制台用户身份永久运行的非特权子进程。
+- 小型 root 监控进程仅执行 macOS 限定 root 完成的操作：创建和配置 feth、启动 DHCP、打开一个 BPF 描述符。然后它把已经打开的描述符和一个固定的 DHCP 刷新请求通道传递给以当前控制台用户身份永久运行的非特权子进程；该通道不传输数据包或命令参数。
 - USB 发现、RNDIS 解析、数据包转发、运行状态和菜单控制都在非特权数据代理中完成，root 监控进程不会解析设备控制的数据。
 - 可选菜单栏进程同样不带特权，并与数据路径隔离；退出菜单栏不会断开 USB 网络。
 
@@ -97,6 +97,7 @@ horndis install               授权一次并安装/启动两个组件
 horndis uninstall             移除两个持久组件
 horndis start|stop|restart    仅控制菜单栏应用
 horndis status                显示网络、连接和菜单状态
+horndis diagnostics [文件]    创建不采集个人身份信息的诊断报告
 horndis probe                 列出 RNDIS/CDC USB 网络功能
 horndis usb-test              初始化 RNDIS，但不创建网络接口
 sudo horndis run              在前台运行
@@ -107,7 +108,7 @@ horndis help [命令]
 man horndis
 ```
 
-桥接默认使用 `feth99` 作为 macOS 端接口，使用 `feth98` 作为守护进程端接口。root 启动环境可以通过 `HORNDIS_HOST_INTERFACE` 和 `HORNDIS_TRANSPORT_INTERFACE` 覆盖它们；取值仅允许 `feth<number>` 格式。
+桥接会自动选择两个尚不存在的 `feth<number>` 名称，优先使用 macOS 端 `feth99` 和守护进程端 `feth98`，随后尝试 `feth97`/`feth96`，依此类推。HoRNDIS 不会接管已有接口。root 启动环境仍可通过 `HORNDIS_HOST_INTERFACE` 和 `HORNDIS_TRANSPORT_INTERFACE` 成对覆盖；两个变量必须同时设置为不同且尚不存在的名称。`horndis status` 和菜单“详细信息”会显示实际选择的 macOS 端接口。
 
 ## 开发
 
@@ -145,10 +146,13 @@ RNDIS 目前支持与 CDC 数据接口配对的 Android gadget 布局 `e0/01/03`
 
 ## 故障排查
 
+提交 Bug 前，请先复现问题，然后使用“**HoRNDIS → 详细信息 → 保存诊断报告…**”或 `horndis diagnostics 文件` 生成新报告。GitHub Bug 表单强制上传 `.txt`、`.log` 或 `.zip` 报告，并已关闭外部空白 Issue。详见[反馈 Bug](docs/BUG_REPORTING.zh-CN.md)。
+
 - `cannot claim ... interface`：停止占用接口 0/1 的其他 RNDIS 驱动或应用。接口 2 上的 ADB 可以共存。
-- `feth99` 没有地址：关闭再开启 USB 网络共享，然后检查 `/var/log/horndis.log`。
+- 菜单在显示设备后一直停在“正在配置 DHCP”：当前版本会在每次连接时自动启用实际选择的 feth 接口并重启 DHCP。旧版本可依次运行 `sudo ifconfig feth99 up` 和 `sudo ipconfig set feth99 DHCP`，在 Android 上关闭再打开 USB 网络共享，然后升级或重新安装 HoRNDIS 以获得永久修复。如果当前版本仍失败，请把 `horndis status` 输出的接口代入 `ipconfig getsummary <接口>`，并检查 `/var/log/horndis.log` 中明确的 DHCP 刷新错误。
+- 其他应用已经占用 `feth98` 或 `feth99`：当前版本会自动跳过整对接口，并在状态/“详细信息”中显示实际选中的名称；HoRNDIS 不会重配或删除已有接口。
 - Homebrew Cask 和 Release `.pkg` 会在安装包流程中更新特权辅助程序及菜单 LaunchAgent，不使用本地编译器。
-- 测试手机路径时如需保持 Wi-Fi 活跃，可运行 `ping -b feth99 8.8.8.8` 绑定接口。
+- 测试手机路径时如需保持 Wi-Fi 活跃，可运行 `ping -b <接口> 8.8.8.8`，把 `<接口>` 替换为 `horndis status` 显示的名称。
 - Android VPN 应用通常不会通过原生 USB 网络共享转发其隧道。如果手机底层 Wi-Fi 在不使用 VPN 时无法访问某个目标，Mac 通常也无法通过共享访问该目标。
 - 在已 root 的 Android 系统中，如果 DHCP 和 ICMP 正常但 TCP 停滞，请检查 `dumpsys tethering` 中的 conntrack/BPF 错误。诊断时可以运行 `device_config put connectivity override_tether_enable_bpf_offload false` 关闭 Android BPF offload；删除该属性即可恢复设备默认设置。
 

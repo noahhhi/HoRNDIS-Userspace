@@ -84,6 +84,7 @@ std::string serialize(const RuntimeStatus& status) {
            << "  \"schema_version\": 1,\n"
            << "  \"state\": \"" << escapeJSON(status.state) << "\",\n"
            << "  \"device\": \"" << escapeJSON(status.device) << "\",\n"
+           << "  \"device_alias\": \"" << escapeJSON(status.deviceAlias) << "\",\n"
            << "  \"device_address\": \"" << escapeJSON(status.deviceAddress) << "\",\n"
            << "  \"host_interface\": \"" << escapeJSON(status.hostInterface) << "\",\n"
            << "  \"detail\": \"" << escapeJSON(status.detail) << "\",\n"
@@ -104,6 +105,7 @@ bool hasRuntimeStatusTransition(const RuntimeStatus& previous,
                                 const RuntimeStatus& current) {
     return previous.state != current.state ||
            previous.device != current.device ||
+           previous.deviceAlias != current.deviceAlias ||
            previous.deviceAddress != current.deviceAddress ||
            previous.hostInterface != current.hostInterface ||
            previous.detail != current.detail ||

@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "InterfaceSelection.hpp"
+
 namespace horndis {
 
 class VirtualEthernet {
@@ -22,6 +24,7 @@ public:
                          const std::string& hostInterface,
                          const std::string& transportInterface,
                          std::string& error);
+    bool refreshDHCP(std::string& error);
     bool flush(std::string& error);
     bool readFrame(std::vector<uint8_t>& frame, bool& timedOut, std::string& error);
     bool writeFrame(const std::vector<uint8_t>& frame, std::string& error);
@@ -38,8 +41,9 @@ private:
     std::vector<uint8_t> readBuffer_;
     size_t readOffset_ = 0;
     size_t bpfBufferSize_ = 0;
+    bool ownsInterfaces_ = false;
 
-    bool createInterface(const std::string& interface, bool& created, std::string& error);
+    bool createPair(const EthernetInterfacePair& pair, std::string& error);
 };
 
 } // namespace horndis

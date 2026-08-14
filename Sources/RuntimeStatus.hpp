@@ -11,6 +11,7 @@ namespace horndis {
 struct RuntimeStatus {
     std::string state;
     std::string device;
+    std::string deviceAlias;
     std::string deviceAddress;
     std::string hostInterface;
     std::string detail;

@@ -40,7 +40,7 @@ The status item uses Apple SF Symbols and is deliberately compact by default:
 - a Launch at Login switch;
 - a native Details submenu.
 
-Opening Details shows the DHCP address, feth interface, device MAC, service process ID, last service detail, log access, project link, and copyable diagnostics in a native submenu.
+Opening Details shows the DHCP address, feth interface, device MAC, service process ID, last service detail, service-log access, a diagnostic-report save action, and a guided bug-report action in a native submenu.
 
 The status item is a native macOS template symbol, and the menu uses dynamic system colors. Both follow the current light or dark appearance automatically, including menu bars whose appearance differs from the app appearance.
 
@@ -56,19 +56,33 @@ The menu bar app reads `/var/run/horndis/status.json` every two seconds while cl
 
 ```sh
 horndis status
+horndis diagnostics ~/Desktop/HoRNDIS-Diagnostics.txt
 horndis probe
-ifconfig feth99
 scutil --nwi
-ipconfig getsummary feth99
 tail -f /var/log/horndis.log
 ```
+
+`horndis status` and menu Details show the selected macOS-facing interface. Use that name with `ifconfig` or `ipconfig getsummary`.
 
 If the menu bar app has been quit, reopen it from Applications, Launchpad, or
 Spotlight, or run `horndis start`. Use `horndis stop` to hide it without
 disabling login startup, and `horndis restart` after troubleshooting. Run
 `horndis help` or `man horndis` for the complete command reference.
 
-The Network settings panel does not list `feth99`. It is a dynamically cloned Ethernet interface and is published in the live SystemConfiguration state rather than as a persistent Network Service. `scutil --nwi` and the menu bar app show the effective connection.
+The Network settings panel does not list the selected `feth<number>` interface. It is dynamically cloned and published in the live SystemConfiguration state rather than as a persistent Network Service. HoRNDIS prefers `feth99`/`feth98`, automatically skips the entire pair when either name already exists, and never adopts or removes another application's interface. `scutil --nwi`, `horndis status`, and the menu bar app show the effective connection.
+
+## Stuck at Configuring DHCP
+
+Current builds re-enable the selected macOS-facing feth interface and restart the DHCP client after every successful USB/RNDIS connection. This also covers reconnects after boot, login, sleep, cable changes, and Android tethering changes; no new administrator prompt is required.
+
+If an older installed build remains at **Configuring DHCP** after the device name appears, its one-time boot DHCP setup may have been cleared by macOS before the phone connected. Restore that session with:
+
+```sh
+sudo ifconfig feth99 up
+sudo ipconfig set feth99 DHCP
+```
+
+Then turn Android USB tethering off and on. Upgrade or reinstall HoRNDIS to obtain the automatic per-connection repair. If a current build still has no address, use the interface printed by `horndis status` with `ipconfig getsummary <interface>` and inspect `/var/log/horndis.log`; the menu should report a DHCP-refresh error rather than remain indefinitely in the configuring state when the privileged refresh itself fails.
 
 ## Upgrade
 
@@ -91,9 +105,11 @@ brew uninstall --cask horndis
 When Wi-Fi or a VPN remains active on the Mac, bind diagnostics to the USB interface:
 
 ```sh
-ping -b feth99 8.8.8.8
+ping -b <interface> 8.8.8.8
 ```
+
+Replace `<interface>` with the value printed by `horndis status`.
 
 VPN applications using fake-IP DNS can return an address reachable only through their tunnel. A failed interface-bound request to that fake address does not indicate an RNDIS failure. Compare the system resolver with the Android DHCP DNS server when diagnosing this case.
 
-See [Known limitations](LIMITATIONS.md) before reporting a compatibility problem.
+For a bug report, reproduce the problem and immediately save a fresh diagnostic report from menu Details or with `horndis diagnostics FILE`. Review the file, then attach it to the required upload in the GitHub bug form. See [Reporting a bug](BUG_REPORTING.md) for the full workflow and privacy details, and [Known limitations](LIMITATIONS.md) before reporting a compatibility problem.

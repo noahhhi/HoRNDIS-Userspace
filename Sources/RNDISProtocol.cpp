@@ -125,16 +125,24 @@ std::vector<uint8_t> makeKeepalive(uint32_t requestId) {
     return message;
 }
 
-std::vector<uint8_t> wrapEthernetFrame(std::span<const uint8_t> frame) {
+bool wrapEthernetFrame(std::span<const uint8_t> frame, std::vector<uint8_t>& message) {
     if (frame.size() > std::numeric_limits<uint32_t>::max() - 44) {
-        return {};
+        message.clear();
+        return false;
     }
-    std::vector<uint8_t> message(44 + frame.size(), 0);
+    message.resize(44 + frame.size());
+    std::fill(message.begin(), message.begin() + 44, 0);
     store32(message, 0, kPacketMessage);
     store32(message, 4, static_cast<uint32_t>(message.size()));
     store32(message, 8, 36);
     store32(message, 12, static_cast<uint32_t>(frame.size()));
     std::copy(frame.begin(), frame.end(), message.begin() + 44);
+    return true;
+}
+
+std::vector<uint8_t> wrapEthernetFrame(std::span<const uint8_t> frame) {
+    std::vector<uint8_t> message;
+    (void)wrapEthernetFrame(frame, message);
     return message;
 }
 

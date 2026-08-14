@@ -13,7 +13,9 @@ private let launchAgentLabel = "io.github.noahhhi.horndis.status"
 private let privilegedHelperPath = "/Library/PrivilegedHelperTools/io.github.noahhhi.horndis"
 private let launchDaemonPath = "/Library/LaunchDaemons/io.github.noahhhi.horndis.plist"
 private let launchDaemonLabel = "io.github.noahhhi.horndis"
-private let projectURL = URL(string: "https://github.com/noahhhi/HoRNDIS-Userspace")!
+private let bugReportURL = URL(
+    string: "https://github.com/noahhhi/HoRNDIS-Userspace/issues/new?template=bug_report.yml"
+)!
 
 private func localized(_ english: String, _ chinese: String) -> String {
     let preferredLocalization = UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first
@@ -219,21 +221,13 @@ private func ipv4Address(for interfaceName: String) -> String? {
 private func readSnapshot() -> Snapshot {
     guard let data = FileManager.default.contents(atPath: statusPath),
           let runtime = try? JSONDecoder().decode(RuntimeStatus.self, from: data) else {
-        let address = ipv4Address(for: "feth99")
-        if address != nil {
-            return Snapshot(runtime: nil,
-                            state: .connected,
-                            ipAddress: address,
-                            message: localized("Connected (legacy status)", "已连接（旧版状态）"))
-        }
         return Snapshot(runtime: nil,
                         state: .unavailable,
                         ipAddress: nil,
                         message: localized("Service status unavailable", "无法读取服务状态"))
     }
 
-    let interface = runtime.hostInterface.isEmpty ? "feth99" : runtime.hostInterface
-    let address = ipv4Address(for: interface)
+    let address = runtime.hostInterface.isEmpty ? nil : ipv4Address(for: runtime.hostInterface)
     let age = Date().timeIntervalSince1970 - Double(runtime.updatedAt)
     if age > 10 {
         return Snapshot(runtime: runtime,
@@ -504,9 +498,9 @@ private final class StatusPopoverModel: ObservableObject {
     var setConnection: (Bool) -> Void = { _ in }
     var setLaunchAtLogin: (Bool) -> Void = { _ in }
     var authorize: () -> Void = {}
-    var copyDiagnostics: () -> Void = {}
+    var saveDiagnostics: () -> Void = {}
     var openLog: () -> Void = {}
-    var openProject: () -> Void = {}
+    var reportBug: () -> Void = {}
     var quit: () -> Void = {}
     var didAppear: () -> Void = {}
     var didDisappear: () -> Void = {}
@@ -753,15 +747,15 @@ private struct StatusPopoverContent: View {
         VStack(spacing: 0) {
             Divider().padding(.horizontal, 10)
             ForEach(model.detailRows) { StatusPopoverInfoRow(row: $0) }
-            StatusPopoverActionRow(title: localized("Copy Diagnostics", "复制诊断信息"),
-                                   symbol: "doc.on.doc",
-                                   action: model.copyDiagnostics)
+            StatusPopoverActionRow(title: localized("Save Diagnostic Report…", "保存诊断报告…"),
+                                   symbol: "doc.badge.plus",
+                                   action: model.saveDiagnostics)
             StatusPopoverActionRow(title: localized("Open Service Log", "打开服务日志"),
                                    symbol: "doc.text",
                                    action: model.openLog)
-            StatusPopoverActionRow(title: localized("Open Project Page", "打开项目主页"),
-                                   symbol: "safari",
-                                   action: model.openProject)
+            StatusPopoverActionRow(title: localized("Report a Bug…", "报告 Bug…"),
+                                   symbol: "exclamationmark.bubble",
+                                   action: model.reportBug)
         }
     }
 
@@ -930,17 +924,17 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             self?.closeLegacyPopoverBeforeAction()
             self?.authorizeAndInstall()
         }
-        popoverModel.copyDiagnostics = { [weak self] in
+        popoverModel.saveDiagnostics = { [weak self] in
             self?.closeLegacyPopoverBeforeAction()
-            self?.copyDiagnostics()
+            self?.saveDiagnosticReport(openIssueAfterSaving: false)
         }
         popoverModel.openLog = { [weak self] in
             self?.closeLegacyPopoverBeforeAction()
             self?.openLog()
         }
-        popoverModel.openProject = { [weak self] in
+        popoverModel.reportBug = { [weak self] in
             self?.closeLegacyPopoverBeforeAction()
-            self?.openProject()
+            self?.saveDiagnosticReport(openIssueAfterSaving: true)
         }
         popoverModel.quit = { [weak self] in self?.quit() }
         popoverModel.didAppear = { [weak self] in
@@ -1253,7 +1247,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
 
         var detailRows: [StatusPopoverRow] = []
         if let runtime = snapshot.runtime {
-            let interface = runtime.hostInterface.isEmpty ? "feth99" : runtime.hostInterface
+            let interface = runtime.hostInterface.isEmpty ? "—" : runtime.hostInterface
             let address = snapshot.ipAddress ?? localized("configuring…", "配置中…")
             detailRows.append(StatusPopoverRow(id: "ip",
                                                title: "IP: \(address)",
@@ -1327,26 +1321,86 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
         return true
     }
 
-    @objc private func copyDiagnostics() {
-        var lines = [
-            "HoRNDIS Status \(horndisStatusVersion)",
-            "State: \(snapshot.runtime?.state ?? "unavailable")",
-            "Device: \(snapshot.runtime?.device ?? "")",
-            "Device MAC: \(snapshot.runtime?.deviceAddress ?? "")",
-            "Interface: \(snapshot.runtime?.hostInterface ?? "feth99")",
-            "IPv4: \(snapshot.ipAddress ?? "")",
-            "Detail: \(snapshot.runtime?.detail ?? snapshot.message)",
-            "Authorization: \(authorizationState == .granted ? "granted" : "required")",
-        ]
-        if let runtime = snapshot.runtime {
-            lines.append("RX bytes: \(runtime.receivedBytes)")
-            lines.append("TX bytes: \(runtime.transmittedBytes)")
-            lines.append("Service PID: \(runtime.processID)")
-            lines.append("Control available: \(runtime.controlAvailable == true)")
-            lines.append("Status updated: \(runtime.updatedAt)")
+    private func bundledNetworkToolURL() -> URL? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let tool = resources.appendingPathComponent("horndis").standardizedFileURL
+        return FileManager.default.isExecutableFile(atPath: tool.path) ? tool : nil
+    }
+
+    private func diagnosticFilename() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return "HoRNDIS-Diagnostics-\(formatter.string(from: Date())).txt"
+    }
+
+    @objc private func saveDiagnosticReport(openIssueAfterSaving: Bool) {
+        guard let toolURL = bundledNetworkToolURL() else {
+            interfaceError = localized("The bundled HoRNDIS network tool is missing",
+                                       "内置的 HoRNDIS 网络工具缺失")
+            updatePopoverModel()
+            return
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+
+        let foregroundApplication = NSWorkspace.shared.frontmostApplication
+        let applicationToRestore = foregroundApplication?.processIdentifier ==
+            ProcessInfo.processInfo.processIdentifier ? nil : foregroundApplication
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        let panel = NSSavePanel()
+        panel.title = localized("Save HoRNDIS Diagnostic Report", "保存 HoRNDIS 诊断报告")
+        panel.nameFieldStringValue = diagnosticFilename()
+        panel.allowedFileTypes = ["txt"]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else {
+            if let applicationToRestore {
+                _ = applicationToRestore.activate(options: [.activateIgnoringOtherApps])
+            }
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let process = Process()
+            process.executableURL = toolURL
+            process.arguments = ["diagnostics", destination.path]
+            let errorPipe = Pipe()
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = errorPipe
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let detail = String(data: errorData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard process.terminationStatus == 0 else {
+                    throw NSError(domain: "HoRNDISStatus",
+                                  code: Int(process.terminationStatus),
+                                  userInfo: [NSLocalizedDescriptionKey:
+                                    detail?.isEmpty == false ? detail! : localized(
+                                        "Could not create the diagnostic report",
+                                        "无法创建诊断报告")])
+                }
+                DispatchQueue.main.async {
+                    self?.interfaceError = nil
+                    NSWorkspace.shared.activateFileViewerSelecting([destination])
+                    if openIssueAfterSaving {
+                        NSWorkspace.shared.open(bugReportURL)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.interfaceError = error.localizedDescription
+                    self?.updatePopoverModel()
+                    let alert = NSAlert()
+                    alert.messageText = localized("Diagnostic Report Failed", "诊断报告创建失败")
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            }
+        }
     }
 
     @objc private func openLog() {
@@ -1404,10 +1458,6 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             }
             self.refresh()
         }
-    }
-
-    @objc private func openProject() {
-        NSWorkspace.shared.open(projectURL)
     }
 
     @objc private func quit() {

@@ -14,8 +14,8 @@
 
 ## macOS networking
 
-- `feth99` is dynamic and does not appear in the macOS Network settings panel. It remains visible to `ifconfig`, `scutil --nwi`, DHCP, and the menu bar app.
-- A minimal root supervisor remains resident because BPF access and system DHCP/interface configuration are privileged. It does not process USB or RNDIS data; the inherited-BPF data agent runs as the current console user.
+- The selected `feth<number>` interface is dynamic and does not appear in the macOS Network settings panel. It remains visible to `ifconfig`, `scutil --nwi`, DHCP, and the menu bar app. HoRNDIS prefers `feth99`/`feth98` but automatically chooses another unused pair when either name is already occupied.
+- A minimal root supervisor remains resident because BPF access and system DHCP/interface configuration are privileged. It does not process USB or RNDIS data; the inherited-BPF data agent runs as the current console user and can only request the fixed per-session DHCP refresh over a private channel.
 - The feth/BPF backend is not a promised long-term Apple ABI. The code keeps this backend isolated so a future utun or other public backend can replace it.
 - VPN route priority, fake-IP DNS, endpoint security products, and other network extensions can change which path a normal application uses. Interface-bound tests are required to prove the USB path independently.
 
@@ -31,4 +31,5 @@
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
 - Status refreshes every two seconds while the menu is closed and every second while it is visible, so very short transitions can still be missed.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.
+- Diagnostic reports are generated locally and are never uploaded automatically. Account/full names, host/device names, USB serial values and location IDs, MAC/IP addresses, hardware serial numbers, hardware UUIDs, packet contents, and credentials are not collected into the report. Users are labeled `user`; devices receive stable first-seen `device N` aliases across reconnects for the lifetime of the unprivileged data process. The in-memory alias map is not persisted or sent to root, so numbering restarts with that process. Older service-log lines are sanitized during copying; service events and errors remain for diagnosis, so users must still review the file before attaching it to a public issue.
 - Quitting or crashing the menu bar process does not stop tethering. Reopen it from `/Applications` or run `horndis start`. A missing or invalid privileged installation can be repaired with the menu's one-time **Authorize and Install…** action or `horndis install`; both still require normal macOS administrator authentication.
