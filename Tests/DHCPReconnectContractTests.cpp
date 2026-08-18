@@ -37,6 +37,18 @@ int main(int argc, char* argv[]) {
 
     require(mainSource, "success = ethernet.refreshDHCP(error)");
     require(mainSource, "superviseAgentDHCP(supervisorDescriptor, ethernet)");
+
+    // The connected session must probe IPv4 liveness and repair a stripped
+    // address through the supervisor channel, with a grace period so the
+    // probe never races DHCP negotiation or floods refresh requests.
+    const size_t probe = require(mainSource, "if (interfaceHasIPv4(hostInterface))");
+    assert(connected < probe);
+    require(mainSource, "constexpr auto kAddressGracePeriod");
+    const size_t repair = require(
+        mainSource, "if (!horndis::requestDHCPRefresh(supervisorDescriptor, repairError))");
+    assert(probe < repair);
+    require(mainSource, "lastDhcpRepair >= kAddressGracePeriod");
+
     require(ethernetSource,
             "configureInterface(hostInterface_, {\"mtu\", \"1500\", \"up\"}, error)");
     require(ethernetSource,

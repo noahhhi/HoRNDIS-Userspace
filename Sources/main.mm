@@ -20,6 +20,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <grp.h>
+#include <ifaddrs.h>
 #include <iomanip>
 #include <iostream>
 #include <limits.h>
@@ -345,6 +346,28 @@ int usbTest() {
     return 0;
 }
 
+// A VPN transition or configd network reordering can strip the compatibility-path
+// IPv4 address from the host interface while the bridge keeps forwarding frames.
+// The unprivileged agent probes the address so it can ask the root supervisor for
+// a DHCP refresh. On probe failure, report the address as present rather than
+// churn DHCP on a transient error.
+bool interfaceHasIPv4(const std::string& interfaceName) {
+    ifaddrs* addresses = nullptr;
+    if (getifaddrs(&addresses) != 0) {
+        return true;
+    }
+    bool found = false;
+    for (const ifaddrs* entry = addresses; entry != nullptr; entry = entry->ifa_next) {
+        if (entry->ifa_addr != nullptr && entry->ifa_addr->sa_family == AF_INET &&
+            interfaceName == entry->ifa_name) {
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(addresses);
+    return found;
+}
+
 int runAgent(int bpfDescriptor,
              const std::string& hostInterface,
              const std::string& transportInterface,
@@ -520,6 +543,12 @@ int runAgent(int bpfDescriptor,
             runtimeStatus.connectedSince = unixTimestamp();
             publishStatus(statusPublisher, runtimeStatus);
             auto lastStatusEvaluation = std::chrono::steady_clock::now();
+            // The IPv4 liveness probe waits out DHCP negotiation after the initial
+            // refresh and after each repair before it may request another one.
+            constexpr auto kAddressGracePeriod = std::chrono::seconds(10);
+            auto lastAddressProbe = lastStatusEvaluation;
+            auto lastAddressSeen = lastStatusEvaluation;
+            auto lastDhcpRepair = lastStatusEvaluation;
             std::thread outbound([&] {
                 while (gRunning.load() && sessionRunning.load()) {
                     std::vector<uint8_t> frame;
@@ -595,6 +624,21 @@ int runAgent(int bpfDescriptor,
                         transmittedBytes.load(std::memory_order_relaxed);
                     publishStatus(statusPublisher, runtimeStatus, now < observeUntil);
                     lastStatusEvaluation = now;
+                }
+                if (now - lastAddressProbe >= std::chrono::seconds(5)) {
+                    lastAddressProbe = now;
+                    if (interfaceHasIPv4(hostInterface)) {
+                        lastAddressSeen = now;
+                    } else if (now - lastAddressSeen >= kAddressGracePeriod &&
+                               now - lastDhcpRepair >= kAddressGracePeriod) {
+                        logLine("lost the IPv4 address on " + hostInterface +
+                                "; requesting a DHCP refresh");
+                        std::string repairError;
+                        if (!horndis::requestDHCPRefresh(supervisorDescriptor, repairError)) {
+                            logLine(repairError);
+                        }
+                        lastDhcpRepair = now;
+                    }
                 }
             }
 
