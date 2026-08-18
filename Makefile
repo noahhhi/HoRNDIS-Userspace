@@ -40,6 +40,7 @@ DHCP_RECONNECT_CONTRACT_TEST := $(BUILD_DIR)/dhcp-reconnect-contract-tests
 INTERFACE_SELECTION_TEST := $(BUILD_DIR)/interface-selection-tests
 INTERFACE_LIFECYCLE_CONTRACT_TEST := $(BUILD_DIR)/interface-lifecycle-contract-tests
 DIAGNOSTICS_PRIVACY_CONTRACT_TEST := $(BUILD_DIR)/diagnostics-privacy-contract-tests
+DIAGNOSTICS_REDACTION_TEST := $(BUILD_DIR)/diagnostics-redaction-tests
 DEVICE_ALIASES_TEST := $(BUILD_DIR)/device-aliases-tests
 USB_TRANSPORT_MEMORY_CONTRACT_TEST := $(BUILD_DIR)/usb-transport-memory-contract-tests
 STATUS_SWITCH_PROBE := $(BUILD_DIR)/status-switch-appearance-probe
@@ -124,6 +125,10 @@ $(DIAGNOSTICS_PRIVACY_CONTRACT_TEST): Tests/DiagnosticsPrivacyContractTests.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $< -o $@
 
+$(DIAGNOSTICS_REDACTION_TEST): Tests/DiagnosticsRedactionTests.mm Sources/Diagnostics.mm Sources/USBTransport.mm Sources/RNDISProtocol.cpp Sources/Diagnostics.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/DiagnosticsRedactionTests.mm Sources/Diagnostics.mm Sources/USBTransport.mm Sources/RNDISProtocol.cpp $(LDFLAGS) -o $@
+
 $(DEVICE_ALIASES_TEST): Tests/DeviceAliasesTests.cpp Sources/DeviceAliases.hpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $< -o $@
@@ -147,7 +152,7 @@ $(MENU_UI_CONTRACT_TEST): Tests/MenuUIContractTests.swift
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
 		-framework Foundation $< -o $@
 
-test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RECONNECT_CONTRACT_TEST) $(INTERFACE_SELECTION_TEST) $(INTERFACE_LIFECYCLE_CONTRACT_TEST) $(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) $(DEVICE_ALIASES_TEST) $(USB_TRANSPORT_MEMORY_CONTRACT_TEST) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
+test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RECONNECT_CONTRACT_TEST) $(INTERFACE_SELECTION_TEST) $(INTERFACE_LIFECYCLE_CONTRACT_TEST) $(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) $(DIAGNOSTICS_REDACTION_TEST) $(DEVICE_ALIASES_TEST) $(USB_TRANSPORT_MEMORY_CONTRACT_TEST) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
 	$(TEST_TARGET)
 	$(RUNTIME_STATUS_TEST)
 	$(SUPERVISOR_CHANNEL_TEST)
@@ -155,6 +160,7 @@ test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RE
 	$(INTERFACE_SELECTION_TEST)
 	$(INTERFACE_LIFECYCLE_CONTRACT_TEST) Sources/VirtualEthernet.cpp Sources/main.mm StatusApp/HoRNDISStatus.swift
 	$(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) Sources/main.mm Sources/Diagnostics.mm .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/config.yml
+	$(DIAGNOSTICS_REDACTION_TEST)
 	$(DEVICE_ALIASES_TEST)
 	$(USB_TRANSPORT_MEMORY_CONTRACT_TEST) Sources/USBTransport.mm
 	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift

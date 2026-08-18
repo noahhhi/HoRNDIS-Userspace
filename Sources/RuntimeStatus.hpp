@@ -59,4 +59,8 @@ private:
 bool publishRuntimeStatus(const RuntimeStatus& status, std::string& error);
 void removeRuntimeStatus();
 
+// Exposed for tests: the exact JSON document published to status.json.
+// Device-controlled strings (product name, detail) must arrive escaped.
+std::string serializeRuntimeStatus(const RuntimeStatus& status);
+
 } // namespace horndis

@@ -20,6 +20,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <grp.h>
+#include <ifaddrs.h>
 #include <iomanip>
 #include <iostream>
 #include <limits.h>
@@ -345,6 +346,28 @@ int usbTest() {
     return 0;
 }
 
+// A VPN transition or configd network reordering can strip the compatibility-path
+// IPv4 address from the host interface while the bridge keeps forwarding frames.
+// The unprivileged agent probes the address so it can ask the root supervisor for
+// a DHCP refresh. On probe failure, report the address as present rather than
+// churn DHCP on a transient error.
+bool interfaceHasIPv4(const std::string& interfaceName) {
+    ifaddrs* addresses = nullptr;
+    if (getifaddrs(&addresses) != 0) {
+        return true;
+    }
+    bool found = false;
+    for (const ifaddrs* entry = addresses; entry != nullptr; entry = entry->ifa_next) {
+        if (entry->ifa_addr != nullptr && entry->ifa_addr->sa_family == AF_INET &&
+            interfaceName == entry->ifa_name) {
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(addresses);
+    return found;
+}
+
 int runAgent(int bpfDescriptor,
              const std::string& hostInterface,
              const std::string& transportInterface,
@@ -520,6 +543,12 @@ int runAgent(int bpfDescriptor,
             runtimeStatus.connectedSince = unixTimestamp();
             publishStatus(statusPublisher, runtimeStatus);
             auto lastStatusEvaluation = std::chrono::steady_clock::now();
+            // The IPv4 liveness probe waits out DHCP negotiation after the initial
+            // refresh and after each repair before it may request another one.
+            constexpr auto kAddressGracePeriod = std::chrono::seconds(10);
+            auto lastAddressProbe = lastStatusEvaluation;
+            auto lastAddressSeen = lastStatusEvaluation;
+            auto lastDhcpRepair = lastStatusEvaluation;
             std::thread outbound([&] {
                 while (gRunning.load() && sessionRunning.load()) {
                     std::vector<uint8_t> frame;
@@ -595,6 +624,21 @@ int runAgent(int bpfDescriptor,
                         transmittedBytes.load(std::memory_order_relaxed);
                     publishStatus(statusPublisher, runtimeStatus, now < observeUntil);
                     lastStatusEvaluation = now;
+                }
+                if (now - lastAddressProbe >= std::chrono::seconds(5)) {
+                    lastAddressProbe = now;
+                    if (interfaceHasIPv4(hostInterface)) {
+                        lastAddressSeen = now;
+                    } else if (now - lastAddressSeen >= kAddressGracePeriod &&
+                               now - lastDhcpRepair >= kAddressGracePeriod) {
+                        logLine("lost the IPv4 address on " + hostInterface +
+                                "; requesting a DHCP refresh");
+                        std::string repairError;
+                        if (!horndis::requestDHCPRefresh(supervisorDescriptor, repairError)) {
+                            logLine(repairError);
+                        }
+                        lastDhcpRepair = now;
+                    }
                 }
             }
 
@@ -803,6 +847,19 @@ void superviseAgentDHCP(int descriptor, horndis::VirtualEthernet& ethernet) {
     }
 }
 
+// Root-published snapshots stay mode 0600, so hand them to the console user;
+// otherwise the menu bar app cannot read supervisor states such as "starting",
+// "waiting", or an agent-restart error.
+void publishSupervisorStatus(horndis::RuntimeStatusPublisher& publisher,
+                             const horndis::RuntimeStatus& status,
+                             bool force = false) {
+    publishStatus(publisher, status, force);
+    const auto identity = currentConsoleUser();
+    if (identity.has_value()) {
+        (void)chown("/var/run/horndis/status.json", identity->user, identity->group);
+    }
+}
+
 int runBridge() {
     if (geteuid() != 0) {
         std::cerr << "horndis run must execute as root. Use `sudo horndis service install`.\n";
@@ -825,7 +882,7 @@ int runBridge() {
     supervisorStatus.state = "starting";
     supervisorStatus.hostInterface = requestedHost;
     supervisorStatus.detail = "Preparing the privileged network capability";
-    publishStatus(statusPublisher, supervisorStatus);
+    publishSupervisorStatus(statusPublisher, supervisorStatus);
 
     horndis::VirtualEthernet ethernet;
     std::string error;
@@ -833,14 +890,14 @@ int runBridge() {
         logLine(error);
         supervisorStatus.state = "error";
         supervisorStatus.detail = error;
-        publishStatus(statusPublisher, supervisorStatus);
+        publishSupervisorStatus(statusPublisher, supervisorStatus);
         return 1;
     }
     const std::string hostInterface = ethernet.hostInterface();
     const std::string transportInterface = ethernet.transportInterface();
     supervisorStatus.hostInterface = hostInterface;
     supervisorStatus.detail = "Privileged network capability is ready";
-    publishStatus(statusPublisher, supervisorStatus, true);
+    publishSupervisorStatus(statusPublisher, supervisorStatus, true);
     logLine("selected " + hostInterface + " (macOS) and " + transportInterface +
             " (transport)");
     const std::string executable = executablePath(error);
@@ -855,7 +912,7 @@ int runBridge() {
         if (!identity.has_value()) {
             supervisorStatus.state = "waiting";
             supervisorStatus.detail = "Waiting for a macOS console user";
-            publishStatus(statusPublisher, supervisorStatus);
+            publishSupervisorStatus(statusPublisher, supervisorStatus);
             std::this_thread::sleep_for(std::chrono::seconds(2));
             continue;
         }
@@ -902,13 +959,13 @@ int runBridge() {
                 "; restarting");
         supervisorStatus.state = "error";
         supervisorStatus.detail = "The unprivileged data agent exited; restarting";
-        publishStatus(statusPublisher, supervisorStatus);
+        publishSupervisorStatus(statusPublisher, supervisorStatus);
         std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 
     supervisorStatus.state = "stopped";
     supervisorStatus.detail = "HoRNDIS service is stopped";
-    publishStatus(statusPublisher, supervisorStatus);
+    publishSupervisorStatus(statusPublisher, supervisorStatus);
     return 0;
 }
 

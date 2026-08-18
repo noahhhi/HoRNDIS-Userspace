@@ -457,6 +457,10 @@ std::string buildDiagnosticReport(const std::string& version) {
     return redactIdentifiers(report.str());
 }
 
+std::string redactDiagnosticText(std::string text) {
+    return redact(std::move(text));
+}
+
 bool writeDiagnosticReport(const std::string& path,
                            const std::string& version,
                            std::string& error) {

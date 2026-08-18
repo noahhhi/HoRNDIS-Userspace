@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.5 - 2026-08-15
+
+- Refresh DHCP through the fixed supervisor channel after every successful
+  RNDIS initialization and publish the connected state only after DHCP
+  succeeds, so reconnects and delayed post-boot phone connections regain
+  addresses automatically.
+- Select an unused feth pair at startup and tear down only interfaces owned by
+  the current supervisor, never adopting or destroying another application's
+  interfaces.
+- Add privacy-preserving diagnostic reports with stable in-memory device
+  aliases, bilingual bug-report documentation, and a diagnostic-upload issue
+  form; account and device names, serial and location identifiers, MAC/IP
+  values, hardware identifiers, packet contents, and credentials are excluded
+  at collection time.
+- Reuse independent USB receive/transmit buffers and bound autorelease
+  lifetimes so sustained transfers no longer grow data-agent memory.
+- Wrap the diagnostics manual page text.
+
 ## 0.3.4 - 2026-08-13
 
 - Make package upgrades, menu restarts, and direct app launches converge on a
