@@ -38,13 +38,13 @@ The status item uses Apple SF Symbols and is deliberately compact by default:
 - persistent administrator authorization state;
 - a USB Tethering switch at the right edge;
 - a Launch at Login switch;
-- a native Details submenu.
+- a Details row that expands in place.
 
-Opening Details shows the DHCP address, feth interface, device MAC, service process ID, last service detail, service-log access, a diagnostic-report save action, and a guided bug-report action in a native submenu.
+Opening Details expands the panel in place and shows the DHCP address, feth interface, device MAC, service process ID, last service detail, service-log access, a diagnostic-report save action, and a guided bug-report action inside the same panel.
 
 The status item is a native macOS template symbol, and the menu uses dynamic system colors. Both follow the current light or dark appearance automatically, including menu bars whose appearance differs from the app appearance.
 
-HoRNDIS uses AppKit's `NSStatusItem`, `NSMenu`, and `NSSwitch` on every supported macOS version. macOS therefore owns the menu frame, outer and highlighted-item corners, spacing, tracking, submenu animation, light/dark material, and selected system accent color. HoRNDIS does not draw or clip a popover-shaped replacement and does not become the foreground app while its menu is open.
+On macOS 13 and later, HoRNDIS uses SwiftUI's `MenuBarExtra` with the window style — Apple's menu bar presentation for data-rich content with standard controls — and on macOS 11 and 12 it uses an AppKit `NSPopover` compatibility path. The system owns the panel's exterior shape, material, shadow, light/dark appearance, and selected accent color. The switches are native SwiftUI toggles with the system switch material and animation, and Details expands and collapses with a single local SwiftUI disclosure transition. HoRNDIS does not draw or clip a replacement panel and does not become the foreground app while the panel is open.
 
 **Authorization: Granted** means the root-owned network helper and its LaunchDaemon configuration are securely installed. If either is missing, incorrectly owned, writable by non-root users, or invalid, the menu reports **Authorization: Required** and adds **Authorize and Install…** directly below it. That action uses the standard macOS administrator authentication dialog to execute only the fixed `horndis service install` command bundled with the app. HoRNDIS never receives or stores the password. The equivalent terminal workflow is `horndis install`.
 

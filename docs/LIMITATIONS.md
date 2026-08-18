@@ -27,7 +27,7 @@
 
 ## Menu bar status
 
-- Details use a native submenu rather than in-place expansion because Apple does not support resizing a custom menu-item view during menu tracking. This preserves the system's open/close animation and highlight behavior; see [Views in Menu Items](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MenuList/Articles/ViewsInMenuItems.html).
+- Details expand and collapse in place with a native SwiftUI disclosure transition. The panel itself is Apple's window-style menu bar presentation (SwiftUI `MenuBarExtra` on macOS 13+, `NSPopover` on macOS 11–12); the system compositor owns its exterior corner geometry, which measurably differs from a pull-down `NSMenu`, and no public API changes it. See [MENU_UI_GUIDELINES.md](MENU_UI_GUIDELINES.md) for the full framework boundary.
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
 - Status refreshes every two seconds while the menu is closed and every second while it is visible, so very short transitions can still be missed.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.

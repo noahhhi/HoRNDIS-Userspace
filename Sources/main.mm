@@ -803,6 +803,19 @@ void superviseAgentDHCP(int descriptor, horndis::VirtualEthernet& ethernet) {
     }
 }
 
+// Root-published snapshots stay mode 0600, so hand them to the console user;
+// otherwise the menu bar app cannot read supervisor states such as "starting",
+// "waiting", or an agent-restart error.
+void publishSupervisorStatus(horndis::RuntimeStatusPublisher& publisher,
+                             const horndis::RuntimeStatus& status,
+                             bool force = false) {
+    publishStatus(publisher, status, force);
+    const auto identity = currentConsoleUser();
+    if (identity.has_value()) {
+        (void)chown("/var/run/horndis/status.json", identity->user, identity->group);
+    }
+}
+
 int runBridge() {
     if (geteuid() != 0) {
         std::cerr << "horndis run must execute as root. Use `sudo horndis service install`.\n";
@@ -825,7 +838,7 @@ int runBridge() {
     supervisorStatus.state = "starting";
     supervisorStatus.hostInterface = requestedHost;
     supervisorStatus.detail = "Preparing the privileged network capability";
-    publishStatus(statusPublisher, supervisorStatus);
+    publishSupervisorStatus(statusPublisher, supervisorStatus);
 
     horndis::VirtualEthernet ethernet;
     std::string error;
@@ -833,14 +846,14 @@ int runBridge() {
         logLine(error);
         supervisorStatus.state = "error";
         supervisorStatus.detail = error;
-        publishStatus(statusPublisher, supervisorStatus);
+        publishSupervisorStatus(statusPublisher, supervisorStatus);
         return 1;
     }
     const std::string hostInterface = ethernet.hostInterface();
     const std::string transportInterface = ethernet.transportInterface();
     supervisorStatus.hostInterface = hostInterface;
     supervisorStatus.detail = "Privileged network capability is ready";
-    publishStatus(statusPublisher, supervisorStatus, true);
+    publishSupervisorStatus(statusPublisher, supervisorStatus, true);
     logLine("selected " + hostInterface + " (macOS) and " + transportInterface +
             " (transport)");
     const std::string executable = executablePath(error);
@@ -855,7 +868,7 @@ int runBridge() {
         if (!identity.has_value()) {
             supervisorStatus.state = "waiting";
             supervisorStatus.detail = "Waiting for a macOS console user";
-            publishStatus(statusPublisher, supervisorStatus);
+            publishSupervisorStatus(statusPublisher, supervisorStatus);
             std::this_thread::sleep_for(std::chrono::seconds(2));
             continue;
         }
@@ -902,13 +915,13 @@ int runBridge() {
                 "; restarting");
         supervisorStatus.state = "error";
         supervisorStatus.detail = "The unprivileged data agent exited; restarting";
-        publishStatus(statusPublisher, supervisorStatus);
+        publishSupervisorStatus(statusPublisher, supervisorStatus);
         std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 
     supervisorStatus.state = "stopped";
     supervisorStatus.detail = "HoRNDIS service is stopped";
-    publishStatus(statusPublisher, supervisorStatus);
+    publishSupervisorStatus(statusPublisher, supervisorStatus);
     return 0;
 }
 

@@ -101,6 +101,10 @@ std::string serialize(const RuntimeStatus& status) {
 
 } // namespace
 
+std::string serializeRuntimeStatus(const RuntimeStatus& status) {
+    return serialize(status);
+}
+
 bool hasRuntimeStatusTransition(const RuntimeStatus& previous,
                                 const RuntimeStatus& current) {
     return previous.state != current.state ||

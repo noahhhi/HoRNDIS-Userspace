@@ -49,6 +49,21 @@ int main() {
     policy.didPublish(paused, start + 10ms);
     assert(!policy.shouldPublish(paused, start + 1s));
 
+    // The published JSON must neutralize device-controlled strings.
+    horndis::RuntimeStatus hostile = connected;
+    hostile.device = "Pixel\"},\n{\"state\": \"evil";
+    hostile.detail = "tab\there\x01\r";
+    const std::string json = horndis::serializeRuntimeStatus(hostile);
+    assert(json.find("Pixel\\\"},\\n{\\\"state\\\": \\\"evil") != std::string::npos);
+    assert(json.find("tab\\there\\u0001\\r") != std::string::npos);
+    assert(json.find("Pixel\"") == std::string::npos); // no raw quote survives
+    assert(json.find('\x01') == std::string::npos);      // no raw control byte
+    assert(json.find("\"schema_version\": 1") != std::string::npos);
+    assert(json.find("\"received_bytes\": 100") != std::string::npos);
+    assert(json.find("\"control_available\": true") != std::string::npos);
+    assert(json.find("\"updated_at\": ") != std::string::npos);
+    assert(json.find("\"process_id\": ") != std::string::npos);
+
     std::cout << "Runtime status publication tests passed\n";
     return 0;
 }
