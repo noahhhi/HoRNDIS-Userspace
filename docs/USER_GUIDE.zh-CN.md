@@ -50,6 +50,8 @@ brew install --cask noahhhi/tap/horndis
 
 关闭 **USB 网络共享** 滑块只会暂停 RNDIS 桥接，后台服务仍保持运行；打开滑块会恢复设备扫描。菜单栏不能代替用户在 Android 上打开 USB 网络共享。
 
+设备连接期间，HoRNDIS 还会监测桥接接口的 IPv4 地址。如果 macOS 移除了该地址——例如 VPN 连接或断开后重排网络配置——HoRNDIS 会在大约十五秒内自动重新获取 DHCP 地址，无需手动重启。
+
 面板关闭时每两秒读取一次 `/var/run/horndis/status.json`，面板显示期间则每秒刷新一次；打开面板时只原位更新现有文字和原生开关，不会反复重建界面。程序不会读取网络数据内容，也没有遥测。运行目录、状态文件和控制 socket 只允许当前控制台用户及 root 访问；连接控制通过 `/var/run/horndis/control.sock` 完成，并额外校验请求方 UID。
 
 ## 为什么系统“网络”设置中看不到

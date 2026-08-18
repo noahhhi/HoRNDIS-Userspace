@@ -50,6 +50,8 @@ On macOS 13 and later, HoRNDIS uses SwiftUI's `MenuBarExtra` with the window sty
 
 Turning the **USB Tethering** switch off pauses the RNDIS bridge but keeps the background service available. Turning it on resumes discovery and connects when Android USB tethering is enabled. It cannot turn on Android's tethering setting remotely.
 
+While a device is connected, HoRNDIS also watches the bridge interface's IPv4 address. If macOS removes the address — for example after a VPN connects or disconnects and reorders the network configuration — HoRNDIS requests a fresh DHCP lease automatically within about fifteen seconds; no manual restart is needed.
+
 The menu bar app reads `/var/run/horndis/status.json` every two seconds while closed and every second while its panel is visible. It updates the existing labels and native switches in place instead of rebuilding the open panel. It does not inspect packet contents or send telemetry. The runtime directory, status file, and control socket are accessible only to the current console user and root. Connection requests go to `/var/run/horndis/control.sock` and also receive a peer-UID check.
 
 ## Command-line status

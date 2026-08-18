@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.6 - 2026-08-18
+
+- Hand root-published status snapshots to the console user so the menu bar
+  app can read supervisor states such as "starting", "waiting for a console
+  user", agent-restart errors, and "stopped" instead of showing stale data.
+- Probe the host interface's IPv4 address during a connected session and
+  automatically request a DHCP refresh through the fixed supervisor channel
+  when a VPN transition or network reordering strips the address, with a
+  grace period and rate limit so repairs never race DHCP negotiation.
+- Add RNDIS negative-path tests covering truncated headers, out-of-range
+  offsets, 64-bit wraparound, corrupt aggregated transfers, and completion
+  mismatches, plus JSON-escape serialization tests for hostile device
+  strings and a behavioral diagnostics-redaction test target.
+- Update the user guide (English and Chinese) and limitations document to
+  describe the current menu bar window and in-place Details disclosure, and
+  add the missing 0.3.5 changelog entry.
+
 ## 0.3.5 - 2026-08-15
 
 - Refresh DHCP through the fixed supervisor channel after every successful
