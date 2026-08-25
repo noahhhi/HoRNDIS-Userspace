@@ -1,0 +1,43 @@
+"authorization.required" = "Авторизация: требуется";
+
+"status.unavailable" = "Статус службы недоступен";
+"status.stale" = "Статус службы устарел";
+"status.configuringDHCP" = "Настройка DHCP";
+"status.connected" = "USB-модем подключён";
+"status.connecting" = "Подключение";
+"status.waiting" = "Ожидание USB-модема";
+"status.paused" = "Подключение приостановлено";
+"status.error" = "Ошибка службы";
+"status.stopped" = "Служба остановлена";
+"status.unknown" = "Неизвестное состояние службы";
+
+"menu.authorizeAndInstall" = "Авторизовать и установить…";
+"menu.usbTethering" = "USB-модем";
+"menu.launchAtLogin" = "Запускать при входе";
+"menu.details" = "Подробнее";
+"menu.quit" = "Завершить HoRNDIS Status";
+"menu.saveDiagnosticReport" = "Сохранить отчёт диагностики…";
+"menu.openServiceLog" = "Открыть журнал службы";
+"menu.reportBug" = "Сообщить о проблеме…";
+
+"summary.noDevice" = "Нет устройства";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "настройка…";
+"summary.interface" = "Интерфейс";
+
+"diagnostics.savePanelTitle" = "Сохранить отчёт диагностики HoRNDIS";
+"diagnostics.failedTitle" = "Не удалось создать отчёт диагностики";
+
+"error.bundledToolMissingOrUnsafe" = "Встроенный сетевой инструмент HoRNDIS отсутствует или небезопасен";
+"error.cannotPrepareAuthorization" = "Не удалось подготовить запрос авторизации администратора";
+"error.authorizationCancelled" = "Авторизация администратора отменена";
+"error.authorizationFailed" = "Сбой авторизации администратора";
+"error.cannotContactService" = "Не удалось связаться со службой HoRNDIS";
+"error.cannotSendConnectionRequest" = "Не удалось отправить запрос подключения";
+"error.bundledToolMissing" = "Встроенный сетевой инструмент HoRNDIS отсутствует";
+"error.cannotCreateDiagnosticReport" = "Не удалось создать отчёт диагностики";
+"error.installationNotVerified" = "Не удалось проверить установку привилегированной службы";
+"error.launchctlExited" = "launchctl завершился с кодом %d";
+"error.openExited" = "open завершился с кодом %d";
+"error.cannotCreateControlSocket" = "Не удалось создать управляющий сокет";
+"error.controlSocketPathTooLong" = "Путь управляющего сокета слишком длинный";

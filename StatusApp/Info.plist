@@ -12,11 +12,6 @@
   <string>io.github.noahhhi.horndis.status</string>
   <key>CFBundleIconFile</key>
   <string>HoRNDISStatus</string>
-  <key>CFBundleLocalizations</key>
-  <array>
-    <string>en</string>
-    <string>zh-Hans</string>
-  </array>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -24,9 +19,9 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.3.6</string>
+  <string>0.3.7</string>
   <key>CFBundleVersion</key>
-  <string>16</string>
+  <string>17</string>
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
   <key>LSUIElement</key>

@@ -1,133 +1,162 @@
 # Menu bar UI implementation contract
 
-The HoRNDIS Status interface follows Apple's native macOS menu bar and control
-behavior. The accepted functional baseline is commit `2c209a7` (identical UI
-source to `49ebe55`), with the old root `containerShape` override removed.
+HoRNDIS Status uses one native AppKit menu implementation on every supported
+system from macOS 11 onward. This architecture intentionally replaces the
+former SwiftUI `MenuBarExtra(.window)`/`NSPopover` presentation and its
+liquid-glass switches.
 
 ## Apple framework choices
 
-- On macOS 13 and later, use SwiftUI `MenuBarExtra` with the `.window` style.
-  Apple describes this style as the menu bar presentation for complex or
-  data-rich content containing standard controls.
-- On macOS 11 and 12, use an AppKit `NSPopover` compatibility path. Let AppKit
-  draw its exterior shape and material; never draw, mask, clip, or hard-code the
-  popover's outer corner radius.
-- Use a native SwiftUI `Toggle` with the `.switch` style and `.mini` control
-  size. The switch must retain the system's click and drag interactions,
-  animation, accent color, accessibility role, material, and active/inactive
-  behavior. Do not replace it with a Button or a hand-drawn switch.
-- Use `DisclosureGroup` and `DisclosureGroupStyle` for Details. Expansion and
-  collapse must be one local SwiftUI transition in the existing window; do not
-  replace or refresh the complete menu view and do not run a competing AppKit
-  frame animation.
-- Use SF Symbols, semantic system colors, and template rendering. Do not
-  hard-code colors for light, dark, accent, or inactive appearances.
+- Create the status item with `NSStatusBar` and attach a standard `NSMenu`.
+- Build every row from `NSMenuItem`; never attach a custom `view` to a menu
+  item and never draw a replacement menu background, highlight, corner, icon,
+  checkmark, or submenu arrow.
+- Represent **USB Tethering** and **Launch at Login** with ordinary actionable
+  `NSMenuItem` instances. Set `state` to `.on` or `.off` so AppKit supplies the
+  standard menu checkmark and accessibility state. Do not use `Toggle`,
+  `NSSwitch`, a hosted SwiftUI view, or a hand-drawn control.
+- Represent **Details** with a standard submenu. AppKit owns the side-opening
+  direction, delay, animation, keyboard navigation, highlight, and dismissal.
+  Do not restore an in-place disclosure or manually resize a menu/window.
+- Use template SF Symbols and semantic system rendering for the status and
+  device summary rows and for Details-submenu rows. In the traffic row, use an
+  `arrow.up` image as the first upload marker, followed by the transmitted
+  total and the explicit `↓` received marker in the title. Do not add a second
+  inline upload arrow. If a symbol is absent on an older macOS version, use the
+  existing system-symbol fallback.
+- Place root-summary symbols in AppKit's state column with `offStateImage`
+  while leaving each information item in the `.off` state. This aligns those
+  symbols with the native checkmarks below and lets AppKit omit a separate root
+  image column. Do not emulate the alignment with indentation, title padding,
+  attributed-string offsets, or custom drawing. Details-submenu rows continue
+  to use ordinary item images in their independent menu.
+- Give each root action only one functional affordance: AppKit's checkmark for
+  USB Tethering and Launch at Login, the submenu arrow for Details, and the
+  key equivalent for Quit. The authorization warning row owns its shield; the
+  adjacent Authorize and Install action must not repeat it. Do not add
+  redundant leading images to those rows.
+- On macOS 27 and later, request the public `NSMenuItem` image visibility value
+  `visible`. The implementation invokes that availability-gated setter
+  dynamically so the same source still builds with older SDKs and runs on
+  macOS 11+.
+- Keep `menu.autoenablesItems = false` and update enabled/state properties from
+  the current service snapshot so an unavailable control remains visibly and
+  accessibly unavailable.
 
-### Public framework boundary
+This is the explicit product decision anticipated by the earlier UI contract:
+exact Apple pull-down-menu geometry is more important than retaining the
+window-style panel, draggable liquid-glass switches, or inline disclosure.
 
-Apple defines the `.window` style as a *popover-like window* whose controls are
-laid out like controls in a normal window. It is not the pull-down `.menu`
-style used by `NSMenu`. Neither `WindowMenuBarExtraStyle` nor `NSPopover`
-exposes an exterior radius or shape property, and `NSWindow` has no public
-window-corner radius property. A SwiftUI root `containerShape` describes the
-content container but does not alter the compositor-owned window frame or
-shadow.
+## Native geometry and appearance
 
-On the current test system, Retina alpha-edge measurement gives approximately
-14 pt for the native `.window` exterior and 10 pt for the top-left Apple menu.
-Setting the root container shape to 10 pt produced an identical before/after
-window alpha mask, confirming that it cannot change this frame. Therefore this
-implementation matches the Apple menu's measurable row, icon, selection, and
-edge-spacing geometry while leaving the `.window` exterior system-owned.
+`NSMenu` owns the exterior radius, material, shadow, edge padding, row height,
+text baseline, state column, image column, submenu arrow, selected accent
+color, light/dark appearance, reduced-transparency behavior, and high-contrast
+rendering. HoRNDIS supplies only item titles, template images, state,
+enabled/hidden status, actions, and shortcuts. Do not
+set `minimumWidth`: AppKit must derive the horizontal margins and final width
+from the localized item content, image/state columns, submenu arrows, and key
+equivalents.
 
-Pixel-identical `NSMenu` exterior corners would require a different product
-architecture: a true `NSMenu` with menu-tracking constraints, a hand-drawn
-panel, or unsupported private host access. Do not silently choose any of these
-or reintroduce a no-op radius modifier; obtain an explicit product decision and
-revalidate native switch dragging, inline disclosure animation, focus,
-accessibility, dark mode, and older-system behavior.
+Because all rows are real menu items, HoRNDIS must not hard-code selection
+insets or radii. AppKit reserves the same state and image columns throughout a
+menu, including when only some items are checked. Keep each symbol's intrinsic
+aspect ratio and never force dissimilar symbols into a common square image
+size or apply per-symbol point-size corrections.
 
-## Shared geometry
+Keep the root summary to three information rows: current connection state;
+device name and duration separated by a middle dot; and transmitted then
+received totals. A valid authorization state is implicit and consumes no row.
+Only a required authorization state adds its warning row and the native
+Authorize and Install action. Every row remains a standard `NSMenuItem`; do
+not replace this compact hierarchy with a custom summary view.
 
-Geometry is a component-level invariant, not a per-row approximation:
+## State-item behavior
 
-- content width: 286 pt;
-- row height: 32 pt for summary, switch, Details, detail, action, and Quit rows;
-- icon layout frame: 16 pt;
-- normal content horizontal inset: 12 pt;
-- interactive selection horizontal inset: 5 pt, matching the measured current
-  Apple menu edge inset;
-- interactive selection vertical inset: 4 pt, producing a 24 pt selection;
-- interactive selection content inset: 7 pt. Together with the 5 pt outer
-  selection inset, this preserves the shared 12 pt icon column.
-- interactive selection radius: 8 pt, matching the current system menu
-  selection curve in pixel comparison. On macOS 26 and later,
-  `ConcentricRectangle` also resolves the curve relative to the system container.
+- Clicking **USB Tethering** requests the inverse of its current `state`.
+  Pending state is displayed immediately and then reconciled with the service
+  snapshot. The item is disabled when the unprivileged control socket is not
+  available.
+- Clicking **Launch at Login** requests the inverse of its current `state` and
+  updates the checkmark after the LaunchAgent configuration operation.
+- Normal reconnect, state refresh, and either state item never request
+  administrator authorization. Only **Authorize and Install…** invokes the
+  fixed privileged installation workflow.
+- Do not reintroduce switch dragging tests: these rows are intentionally menu
+  commands with checked state, not switches.
 
-The root adds 1 pt below the final 32 pt row. Combined with the selection's
-4 pt vertical inset, this leaves the same measured 5 pt bottom edge as the
-current Apple menu without changing row or selection height. Re-measure these
-values when the system design changes; do not infer them from screenshots at a
-different display scale.
+## Details submenu
 
-Every row uses the same icon column, text start position, font, baseline,
-trailing alignment, and vertical rhythm. Individual SF Symbol ink can have
-different optical bounds; align symbols through the shared layout frame rather
-than distorting glyphs to equal visible widths.
+The submenu preserves the current feature set:
+
+- DHCP/IP address, selected feth interface, device MAC, service PID, last
+  service detail, and current UI error;
+- **Save Diagnostic Report…**;
+- **Open Service Log**;
+- **Report a Bug…**.
+
+Create the submenu items once and update their existing titles, images, hidden
+state, and enabled state. Do not rebuild the open submenu during the one-second
+refresh cycle.
 
 ## Live status and persistence contract
 
-- While the menu is visible, refresh the displayed service state, connection
-  duration, and transmitted/received totals from a fresh service snapshot once
-  per second. This cadence is a product requirement, not a best-effort target.
-- The privileged service may coalesce counter-only status-file writes while the
-  menu is closed. Opening the menu must temporarily restore one-second status
-  publication, and closing it must automatically release that observation
-  lease without requiring privileged work.
-- Publish device attachment/removal, connected/paused/waiting/error transitions,
-  and connection commands immediately; never hold them for the background
-  counter-write interval. Refresh authorization UI immediately after an
-  install or repair operation rather than coupling it to status-file cadence.
-- If reduced background persistence, event-driven supervision, or another
-  performance optimization prevents reliable one-second visible refresh or
-  immediate transitions, remove that optimization.
+- While the root menu is open, refresh service state, duration, and traffic
+  totals once per second. The timer must run in both default and event-tracking
+  run-loop modes.
+- While connected and visible, send `observe\n` once per refresh to renew the
+  three-second service observation lease. Closing the root menu releases the
+  lease automatically.
+- While closed, the app may read status every two seconds and the service may
+  coalesce counter-only writes. Device attachment/removal, connection/error
+  state, interface identity, authorization result, and explicit connect or
+  disconnect commands must still publish immediately.
+- Update the existing root and submenu items in place. Do not replace the
+  `NSMenu` during tracking.
 
-On systems that provide `ConcentricRectangle`, interactive selections next to
-the window edge use concentric corners so the system derives the inner radius
-from the actual container and inset. Older systems use a continuous rounded
-rectangle with an 8 pt fallback radius. Never declare a guessed outer radius to
-make the fallback appear concentric.
+## Compatibility contract
+
+- Minimum deployment target remains macOS 11.
+- The same AppKit code path must compile for and run on Intel (`x86_64`) and
+  Apple silicon (`arm64`).
+- Do not add availability-dependent menu behavior unless the macOS 11 path has
+  an equivalent native fallback.
+- The menu must not activate HoRNDIS as the foreground application merely to
+  force a color or control state.
+- Keep the status item image templated so it remains visible on dark and
+  full-screen menu bars.
 
 ## Required visual and interaction verification
 
-Test the installed app, not only an offscreen render or probe:
+Test the installed App rather than only a source probe:
 
-1. Compare collapsed HoRNDIS against commit `2c209a7` for native switch drag,
-   Details interaction, typography, icon column, row height, and spacing.
-2. Compare HoRNDIS with the Apple menu opened from the top-left Apple menu.
-   Measure all four exterior corners and the bottom highlighted row's inset,
-   height, and concentric relationship to the exterior edge.
-3. Drag each switch both within its track and outside the window, release it,
-   close, and reopen. There must be no duplicate/floating track or empty window.
-4. Expand and collapse Details repeatedly and inspect a recording frame by
-   frame. Content must not cross other rows, the window height must change
-   continuously, and the complete page must not flash or be replaced.
-5. Verify Detail, expanded actions, authorization, and Quit hover selections
-   have identical height and horizontal geometry.
-6. Verify light mode, dark mode, system accent colors, inactive appearance,
-   full-screen menu bar backgrounds, one-second visible refresh, keyboard and
-   VoiceOver behavior, and that the previous foreground app remains frontmost.
+1. Open the top-left Apple menu and HoRNDIS menu under the same appearance;
+   verify their exterior corners, row rhythm, highlight geometry, material,
+   state/image columns, compact three-row summary, and submenu behavior are
+   system-consistent.
+2. Verify checked and unchecked states for both commands, including disabled
+   USB control state and immediate pending-state feedback. Confirm neither
+   checked command adds a redundant image beside the checkmark.
+3. Hover and keyboard-select all actionable rows. Confirm native accent color,
+   Escape dismissal, arrow-key navigation, Return activation, `⌘Q`, and no
+   stuck highlights.
+4. Open Details repeatedly and verify the system side submenu contains all
+   current rows/actions, updates without flashing, and never leaves an empty or
+   oversized window.
+5. Keep the root menu open and verify duration/traffic values refresh once per
+   second; verify attach, detach, pause, resume, error, authorization, and
+   language changes remain correct.
+6. Verify light/dark mode, different system accents, increased contrast,
+   reduced transparency, full-screen menu bars, all shipped localizations,
+   Intel/macOS 11 compilation, VoiceOver state announcements, and that the
+   previous foreground app stays frontmost.
 
 ## Primary Apple references
 
-- [MenuBarExtra](https://developer.apple.com/documentation/swiftui/menubarextra)
-- [Window menu bar extra style](https://developer.apple.com/documentation/swiftui/menubarextrastyle/window)
-- [Human Interface Guidelines: Toggles](https://developer.apple.com/design/human-interface-guidelines/toggles)
-- [Human Interface Guidelines: Disclosure controls](https://developer.apple.com/design/human-interface-guidelines/disclosure-controls)
-- [Human Interface Guidelines: Popovers](https://developer.apple.com/design/human-interface-guidelines/popovers)
 - [Human Interface Guidelines: Menus](https://developer.apple.com/design/human-interface-guidelines/menus)
+- [NSMenu](https://developer.apple.com/documentation/appkit/nsmenu)
+- [NSMenuItem](https://developer.apple.com/documentation/appkit/nsmenuitem)
+- [NSMenuItem state](https://developer.apple.com/documentation/appkit/nsmenuitem/state)
+- [NSStatusItem](https://developer.apple.com/documentation/appkit/nsstatusitem)
 - [Human Interface Guidelines: Icons](https://developer.apple.com/design/human-interface-guidelines/icons)
 - [Human Interface Guidelines: Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode)
-- [ConcentricRectangle](https://developer.apple.com/documentation/swiftui/concentricrectangle)
-- [DisclosureGroupStyle](https://developer.apple.com/documentation/swiftui/disclosuregroupstyle)
-- [Unifying your app's animations](https://developer.apple.com/documentation/swiftui/unifying-your-app-s-animations)

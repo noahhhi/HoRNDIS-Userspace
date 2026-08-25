@@ -2,7 +2,6 @@
 import AppKit
 import Darwin
 import Foundation
-import SwiftUI
 
 private let horndisStatusVersion = Bundle.main.object(
     forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -17,24 +16,24 @@ private let bugReportURL = URL(
     string: "https://github.com/noahhhi/HoRNDIS-Userspace/issues/new?template=bug_report.yml"
 )!
 
-private func localized(_ english: String, _ chinese: String) -> String {
-    let preferredLocalization = UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first
-        ?? Bundle.main.preferredLocalizations.first
-        ?? Locale.preferredLanguages.first
-        ?? "en"
-    return preferredLocalization.hasPrefix("zh") ? chinese : english
+private func localized(_ key: String, fallback: String) -> String {
+    NSLocalizedString(key,
+                      tableName: "Localizable",
+                      bundle: .main,
+                      value: fallback,
+                      comment: "")
 }
 
 private enum ServiceAuthorizationState: Equatable {
     case granted
     case required
 
-    var title: String {
+    var warningTitle: String? {
         switch self {
         case .granted:
-            return localized("Authorization: Granted", "授权状态：已授权")
+            return nil
         case .required:
-            return localized("Authorization: Required", "授权状态：需要授权")
+            return localized("authorization.required", fallback: "Authorization: Required")
         }
     }
 
@@ -110,8 +109,8 @@ private enum ServiceAuthorizationManager {
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(ENOENT),
                           userInfo: [NSLocalizedDescriptionKey:
-                              localized("The bundled HoRNDIS network tool is missing or unsafe",
-                                        "内置的 HoRNDIS 网络工具缺失或权限不安全")])
+                              localized("error.bundledToolMissingOrUnsafe",
+                                        fallback: "The bundled HoRNDIS network tool is missing or unsafe")])
         }
 
         let source = """
@@ -122,8 +121,8 @@ private enum ServiceAuthorizationManager {
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(EINVAL),
                           userInfo: [NSLocalizedDescriptionKey:
-                              localized("Cannot prepare the administrator authorization request",
-                                        "无法准备管理员授权请求")])
+                              localized("error.cannotPrepareAuthorization",
+                                        fallback: "Cannot prepare the administrator authorization request")])
         }
 
         var errorInformation: NSDictionary?
@@ -132,13 +131,16 @@ private enum ServiceAuthorizationManager {
             let number = errorInformation[NSAppleScript.errorNumber] as? Int
             let fallback = errorInformation[NSAppleScript.errorMessage] as? String
             let message = number == -128
-                ? localized("Administrator authorization was cancelled", "管理员授权已取消")
-                : fallback ?? localized("Administrator authorization failed", "管理员授权失败")
+                ? localized("error.authorizationCancelled",
+                            fallback: "Administrator authorization was cancelled")
+                : fallback ?? localized("error.authorizationFailed",
+                                        fallback: "Administrator authorization failed")
             throw NSError(domain: "HoRNDISStatus",
                           code: number ?? Int(EPERM),
                           userInfo: [NSLocalizedDescriptionKey: message])
         }
     }
+
 }
 
 private struct RuntimeStatus: Decodable {
@@ -224,7 +226,8 @@ private func readSnapshot() -> Snapshot {
         return Snapshot(runtime: nil,
                         state: .unavailable,
                         ipAddress: nil,
-                        message: localized("Service status unavailable", "无法读取服务状态"))
+                        message: localized("status.unavailable",
+                                           fallback: "Service status unavailable"))
     }
 
     let address = runtime.hostInterface.isEmpty ? nil : ipv4Address(for: runtime.hostInterface)
@@ -233,7 +236,7 @@ private func readSnapshot() -> Snapshot {
         return Snapshot(runtime: runtime,
                         state: .unavailable,
                         ipAddress: address,
-                        message: localized("Service status is stale", "服务状态已过期"))
+                        message: localized("status.stale", fallback: "Service status is stale"))
     }
 
     let displayState: DisplayState
@@ -242,26 +245,26 @@ private func readSnapshot() -> Snapshot {
     case "connected":
         displayState = .connected
         message = address == nil
-            ? localized("Configuring DHCP", "正在配置 DHCP")
-            : localized("USB tethering connected", "USB 网络共享已连接")
+            ? localized("status.configuringDHCP", fallback: "Configuring DHCP")
+            : localized("status.connected", fallback: "USB tethering connected")
     case "connecting":
         displayState = .connecting
-        message = localized("Connecting", "正在连接")
+        message = localized("status.connecting", fallback: "Connecting")
     case "waiting":
         displayState = .waiting
-        message = localized("Waiting for USB tethering", "等待 USB 网络共享")
+        message = localized("status.waiting", fallback: "Waiting for USB tethering")
     case "paused":
         displayState = .paused
-        message = localized("Connection paused", "连接已暂停")
+        message = localized("status.paused", fallback: "Connection paused")
     case "error":
         displayState = .error
-        message = localized("Service error", "服务错误")
+        message = localized("status.error", fallback: "Service error")
     case "stopped":
         displayState = .stopped
-        message = localized("Service stopped", "服务已停止")
+        message = localized("status.stopped", fallback: "Service stopped")
     default:
         displayState = .unavailable
-        message = localized("Unknown service state", "未知服务状态")
+        message = localized("status.unknown", fallback: "Unknown service state")
     }
     return Snapshot(runtime: runtime, state: displayState, ipAddress: address, message: message)
 }
@@ -325,10 +328,14 @@ private enum LaunchAgentManager {
         try process.run()
         process.waitUntilExit()
         if process.terminationStatus != 0 && !allowFailure {
+            let message = String(
+                format: localized("error.launchctlExited",
+                                  fallback: "launchctl exited with status %d"),
+                process.terminationStatus
+            )
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(process.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey:
-                              "launchctl exited with status \(process.terminationStatus)"])
+                          userInfo: [NSLocalizedDescriptionKey: message])
         }
         return process.terminationStatus
     }
@@ -377,10 +384,14 @@ private enum LaunchAgentManager {
         try process.run()
         process.waitUntilExit()
         if process.terminationStatus != 0 {
+            let message = String(
+                format: localized("error.openExited",
+                                  fallback: "open exited with status %d"),
+                process.terminationStatus
+            )
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(process.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey:
-                              "open exited with status \(process.terminationStatus)"])
+                          userInfo: [NSLocalizedDescriptionKey: message])
         }
     }
 
@@ -430,7 +441,9 @@ private enum ControlClient {
         guard descriptor >= 0 else {
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(errno),
-                          userInfo: [NSLocalizedDescriptionKey: "Cannot create the control socket"])
+                          userInfo: [NSLocalizedDescriptionKey:
+                              localized("error.cannotCreateControlSocket",
+                                        fallback: "Cannot create the control socket")])
         }
         defer { Darwin.close(descriptor) }
 
@@ -442,7 +455,9 @@ private enum ControlClient {
         guard pathBytes.count <= pathCapacity else {
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(ENAMETOOLONG),
-                          userInfo: [NSLocalizedDescriptionKey: "Control socket path is too long"])
+                          userInfo: [NSLocalizedDescriptionKey:
+                              localized("error.controlSocketPathTooLong",
+                                        fallback: "Control socket path is too long")])
         }
         controlPath.withCString { source in
             withUnsafeMutablePointer(to: &address.sun_path) { pointer in
@@ -463,7 +478,8 @@ private enum ControlClient {
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(errno),
                           userInfo: [NSLocalizedDescriptionKey:
-                              localized("Cannot contact the HoRNDIS service", "无法连接 HoRNDIS 服务")])
+                              localized("error.cannotContactService",
+                                        fallback: "Cannot contact the HoRNDIS service")])
         }
         let bytes = Array(command.utf8)
         let written = bytes.withUnsafeBytes { buffer in
@@ -473,363 +489,32 @@ private enum ControlClient {
             throw NSError(domain: "HoRNDISStatus",
                           code: Int(errno),
                           userInfo: [NSLocalizedDescriptionKey:
-                              localized("Cannot send the connection request", "无法发送连接请求")])
+                              localized("error.cannotSendConnectionRequest",
+                                        fallback: "Cannot send the connection request")])
         }
     }
 }
 
-private struct StatusPopoverRow: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let symbol: String
-}
-
-@MainActor
-private final class StatusPopoverModel: ObservableObject {
-    @Published var statusSymbol = "network.slash"
-    @Published var summaryRows: [StatusPopoverRow] = []
-    @Published var detailRows: [StatusPopoverRow] = []
-    @Published var authorizationRequired = false
-    @Published var connectionOn = false
-    @Published var connectionEnabled = false
-    @Published var launchAtLoginOn = false
-    @Published var detailsExpanded = false
-
-    var setConnection: (Bool) -> Void = { _ in }
-    var setLaunchAtLogin: (Bool) -> Void = { _ in }
-    var authorize: () -> Void = {}
-    var saveDiagnostics: () -> Void = {}
-    var openLog: () -> Void = {}
-    var reportBug: () -> Void = {}
-    var quit: () -> Void = {}
-    var didAppear: () -> Void = {}
-    var didDisappear: () -> Void = {}
-}
-
-private enum StatusPopoverMetrics {
-    static let width: CGFloat = 286
-    static let rowHeight: CGFloat = 32
-    // The current system Apple menu leaves 5 pt between the selection and
-    // each horizontal edge. Keep the same measured inset here.
-    static let selectionInset: CGFloat = 5
-    static let selectionVerticalInset: CGFloat = 4
-    // 5 pt outer selection inset + 7 pt content inset preserves the shared
-    // 12 pt icon column used by summary and switch rows.
-    static let selectionContentHorizontalInset: CGFloat = 7
-    // Matches the native macOS menu selection curve. On current systems,
-    // ConcentricRectangle also resolves this relative to the system container.
-    static let selectionCornerRadius: CGFloat = 8
-}
-
-private struct StatusPopoverInfoRow: View {
-    let row: StatusPopoverRow
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: row.symbol)
-                .frame(width: 16)
-                .foregroundColor(.secondary)
-            Text(row.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundColor(.secondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: StatusPopoverMetrics.rowHeight)
-    }
-}
-
-private final class StatusPopoverHoverModel: ObservableObject {
-    @Published var isHovered = false
-}
-
-private struct StatusPopoverSwitchRow: View {
-    let title: String
-    let symbol: String
-    @Binding var isOn: Bool
-    let isEnabled: Bool
-
-    private var toggle: some View {
-        Toggle(title, isOn: $isOn)
-            .labelsHidden()
-            .controlSize(.mini)
-            .disabled(!isEnabled)
-    }
-
-    @ViewBuilder
-    private var systemToggle: some View {
-        if #available(macOS 12.0, *) {
-            toggle.toggleStyle(.switch)
-        } else {
-            toggle.toggleStyle(SwitchToggleStyle(tint: Color(NSColor.controlAccentColor)))
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .frame(width: 16)
-            Text(title)
-            Spacer(minLength: 8)
-            systemToggle
-        }
-        .padding(.horizontal, 12)
-        .frame(height: StatusPopoverMetrics.rowHeight)
-    }
-}
-
-private struct StatusPopoverSelectionBackground: View {
-    let isSelected: Bool
-
-    private var compatibilityBackground: some View {
-        RoundedRectangle(
-            cornerRadius: StatusPopoverMetrics.selectionCornerRadius,
-            style: .continuous
-        )
-            .fill(isSelected ? Color.accentColor : Color.clear)
-            .padding(.vertical, StatusPopoverMetrics.selectionVerticalInset)
-    }
-
-    @ViewBuilder
-    var body: some View {
-#if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            ConcentricRectangle(
-                corners: .concentric(
-                    minimum: .fixed(StatusPopoverMetrics.selectionCornerRadius)
-                )
-            )
-            .fill(isSelected ? Color.accentColor : Color.clear)
-            .padding(.vertical, StatusPopoverMetrics.selectionVerticalInset)
-        } else {
-            compatibilityBackground
-        }
-#else
-        compatibilityBackground
-#endif
-    }
-}
-
-private struct StatusPopoverActionRow: View {
-    let title: String
-    let symbol: String
-    var shortcut: String?
-    let action: () -> Void
-    @StateObject private var hoverModel: StatusPopoverHoverModel
-
-    init(title: String,
-         symbol: String,
-         shortcut: String? = nil,
-         action: @escaping () -> Void) {
-        self.title = title
-        self.symbol = symbol
-        self.shortcut = shortcut
-        self.action = action
-        _hoverModel = StateObject(wrappedValue: StatusPopoverHoverModel())
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .frame(width: 16)
-                Text(title)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if let shortcut {
-                    Text(shortcut)
-                        .foregroundColor(hoverModel.isHovered
-                            ? Color(NSColor.selectedMenuItemTextColor).opacity(0.75)
-                            : Color(NSColor.tertiaryLabelColor))
-                }
-            }
-            .padding(.horizontal, StatusPopoverMetrics.selectionContentHorizontalInset)
-            .frame(height: StatusPopoverMetrics.rowHeight)
-            .foregroundColor(hoverModel.isHovered
-                ? Color(NSColor.selectedMenuItemTextColor)
-                : Color.primary)
-            .background(StatusPopoverSelectionBackground(
-                isSelected: hoverModel.isHovered
-            ))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, StatusPopoverMetrics.selectionInset)
-        .onHover { hovering in
-            hoverModel.isHovered = hovering
-        }
-    }
-}
-
-private struct StatusPopoverDisclosureLabel: View {
-    let expanded: Bool
-    @StateObject private var hoverModel = StatusPopoverHoverModel()
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "info.circle")
-                .frame(width: 16)
-            Text(localized("Details", "详细信息"))
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(hoverModel.isHovered
-                    ? Color(NSColor.selectedMenuItemTextColor).opacity(0.8)
-                    : .secondary)
-                .rotationEffect(.degrees(expanded ? 90 : 0))
-        }
-        .padding(.horizontal, StatusPopoverMetrics.selectionContentHorizontalInset)
-        .frame(height: StatusPopoverMetrics.rowHeight)
-        .foregroundColor(hoverModel.isHovered
-            ? Color(NSColor.selectedMenuItemTextColor)
-            : Color.primary)
-        .background(StatusPopoverSelectionBackground(
-            isSelected: hoverModel.isHovered
-        ))
-        .contentShape(Rectangle())
-        .padding(.horizontal, StatusPopoverMetrics.selectionInset)
-        .frame(height: StatusPopoverMetrics.rowHeight)
-        .onHover { hovering in
-            hoverModel.isHovered = hovering
-        }
-    }
-}
-
-@available(macOS 13.0, *)
-private struct StatusPopoverDisclosureStyle: DisclosureGroupStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                if #available(macOS 14.0, *) {
-                    withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
-                        configuration.isExpanded.toggle()
-                    }
-                } else {
-                    withAnimation(.spring().speed(1.6)) {
-                        configuration.isExpanded.toggle()
-                    }
-                }
-            } label: {
-                configuration.label
-            }
-            .buttonStyle(.plain)
-
-            if configuration.isExpanded {
-                configuration.content
-            }
-        }
-        .clipped()
-    }
-}
-
-private struct StatusPopoverContent: View {
-    @ObservedObject var model: StatusPopoverModel
-
-    private var connectionBinding: Binding<Bool> {
-        Binding(get: { model.connectionOn }, set: { model.setConnection($0) })
-    }
-
-    private var launchAtLoginBinding: Binding<Bool> {
-        Binding(get: { model.launchAtLoginOn },
-                set: { model.setLaunchAtLogin($0) })
-    }
-
-    private var legacyDetailsBinding: Binding<Bool> {
-        Binding(get: { model.detailsExpanded }, set: { expanded in
-            withAnimation(.spring().speed(1.6)) {
-                model.detailsExpanded = expanded
-            }
-        })
-    }
-
-    private var detailsContent: some View {
-        VStack(spacing: 0) {
-            Divider().padding(.horizontal, 10)
-            ForEach(model.detailRows) { StatusPopoverInfoRow(row: $0) }
-            StatusPopoverActionRow(title: localized("Save Diagnostic Report…", "保存诊断报告…"),
-                                   symbol: "doc.badge.plus",
-                                   action: model.saveDiagnostics)
-            StatusPopoverActionRow(title: localized("Open Service Log", "打开服务日志"),
-                                   symbol: "doc.text",
-                                   action: model.openLog)
-            StatusPopoverActionRow(title: localized("Report a Bug…", "报告 Bug…"),
-                                   symbol: "exclamationmark.bubble",
-                                   action: model.reportBug)
-        }
-    }
-
-    @ViewBuilder
-    private var detailsSection: some View {
-        if #available(macOS 13.0, *) {
-            DisclosureGroup(isExpanded: $model.detailsExpanded) {
-                detailsContent
-            } label: {
-                StatusPopoverDisclosureLabel(expanded: model.detailsExpanded)
-            }
-            .disclosureGroupStyle(StatusPopoverDisclosureStyle())
-        } else {
-            DisclosureGroup(isExpanded: legacyDetailsBinding) {
-                detailsContent
-            } label: {
-                StatusPopoverDisclosureLabel(expanded: model.detailsExpanded)
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(model.summaryRows) { StatusPopoverInfoRow(row: $0) }
-            if model.authorizationRequired {
-                StatusPopoverActionRow(
-                    title: localized("Authorize and Install…", "授权并安装…"),
-                    symbol: "exclamationmark.shield",
-                    action: model.authorize
-                )
-            }
-            Divider().padding(.horizontal, 10)
-            StatusPopoverSwitchRow(title: localized("USB Tethering", "USB 网络共享"),
-                                   symbol: "personalhotspot",
-                                   isOn: connectionBinding,
-                                   isEnabled: model.connectionEnabled)
-            StatusPopoverSwitchRow(title: localized("Launch at Login", "登录时启动"),
-                                   symbol: "power",
-                                   isOn: launchAtLoginBinding,
-                                   isEnabled: true)
-            detailsSection
-            Divider().padding(.horizontal, 10)
-            StatusPopoverActionRow(title: localized("Quit HoRNDIS Status",
-                                                     "退出 HoRNDIS 状态栏"),
-                                   symbol: "xmark.circle",
-                                   shortcut: "⌘Q",
-                                   action: model.quit)
-        }
-        .padding(.top, 6)
-        // The final row already contributes 4 pt through its selection
-        // background. One extra point matches the Apple menu's 5 pt bottom
-        // edge while preserving the shared 32 pt row height.
-        .padding(.bottom, 1)
-        .frame(width: StatusPopoverMetrics.width)
-        .fixedSize(horizontal: false, vertical: true)
-        .onAppear(perform: model.didAppear)
-        .onDisappear(perform: model.didDisappear)
-    }
-}
-
-private struct StatusPopoverLabel: View {
-    @ObservedObject var model: StatusPopoverModel
-
-    var body: some View {
-        Image(systemName: model.statusSymbol)
-            .accessibilityLabel("HoRNDIS")
-    }
+private enum NativeMenuTag: Int {
+    case status = 100
+    case device
+    case traffic
+    case authorization
+    case authorize
+    case connection
+    case launchAtLogin
+    case details
+    case detailIP = 200
+    case detailInterface
+    case detailMAC
+    case detailPID
+    case detailMessage
+    case detailError
 }
 
 @MainActor
-private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
-    let popoverModel = StatusPopoverModel()
-    private var legacyStatusItem: NSStatusItem?
-    private let legacyPopover = NSPopover()
+private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var timer: Timer?
     private var snapshot = readSnapshot()
     private var authorizationState = ServiceAuthorizationManager.state
@@ -841,20 +526,10 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
     private var displayedStatusState: DisplayState?
     private var displayedStatusMessage: String?
     private var didFinishLaunching = false
-    private var localOutsideClickMonitor: Any?
-    private var globalOutsideClickMonitor: Any?
-    private var localEscapeMonitor: Any?
-    private var resignActiveObserver: NSObjectProtocol?
-    private var activeSpaceObserver: NSObjectProtocol?
-    private let outsideClickMask: NSEvent.EventTypeMask = [
-        .leftMouseDown, .rightMouseDown, .otherMouseDown,
-    ]
 
     override init() {
         super.init()
-        configurePopoverActions()
         updateStatusItem()
-        updatePopoverModel()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -863,9 +538,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
         LaunchAgentManager.terminateOtherInstances()
         NSApp.setActivationPolicy(.accessory)
         refresh()
-        if #unavailable(macOS 13.0) {
-            configureLegacyPopover()
-        }
+        configureNativeMenu()
         let refreshTimer = Timer(timeInterval: 1,
                                  target: self,
                                  selector: #selector(timerTick),
@@ -910,253 +583,139 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             }
         }
         updateStatusItem()
-        updatePopoverModel()
-    }
-
-    private func configurePopoverActions() {
-        popoverModel.setConnection = { [weak self] in
-            _ = self?.setConnectionEnabled($0)
-        }
-        popoverModel.setLaunchAtLogin = { [weak self] in
-            _ = self?.setLaunchAtLoginEnabled($0)
-        }
-        popoverModel.authorize = { [weak self] in
-            self?.closeLegacyPopoverBeforeAction()
-            self?.authorizeAndInstall()
-        }
-        popoverModel.saveDiagnostics = { [weak self] in
-            self?.closeLegacyPopoverBeforeAction()
-            self?.saveDiagnosticReport(openIssueAfterSaving: false)
-        }
-        popoverModel.openLog = { [weak self] in
-            self?.closeLegacyPopoverBeforeAction()
-            self?.openLog()
-        }
-        popoverModel.reportBug = { [weak self] in
-            self?.closeLegacyPopoverBeforeAction()
-            self?.saveDiagnosticReport(openIssueAfterSaving: true)
-        }
-        popoverModel.quit = { [weak self] in self?.quit() }
-        popoverModel.didAppear = { [weak self] in
-            self?.beginVisibleObservation()
-        }
-        popoverModel.didDisappear = { [weak self] in
-            self?.menuIsOpen = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                guard let self, !self.menuIsOpen else {
-                    return
-                }
-                self.popoverModel.detailsExpanded = false
-            }
+        if menuIsOpen {
+            updateNativeVisibleContent()
         }
     }
 
-    private func beginVisibleObservation() {
-        let wasAlreadyOpen = menuIsOpen
-        menuIsOpen = true
-        if !wasAlreadyOpen {
-            // Start the renewable service observation lease immediately;
-            // do not wait for the next one-second timer tick.
-            refresh()
+    private func nativeSymbol(_ name: String) -> NSImage? {
+        let image = (NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil))
+        image?.isTemplate = true
+        return image
+    }
+
+    private func setNativeImage(_ symbol: String, on item: NSMenuItem) {
+        item.image = nativeSymbol(symbol)
+
+        // macOS 27 lets the system hide menu-item images while their visibility
+        // remains automatic. Ask AppKit to keep these semantic icons visible.
+        // Use the public Objective-C setter dynamically so this source continues
+        // to compile with pre-macOS-27 SDKs and still runs unchanged on macOS 11+.
+        let visibilitySelector = NSSelectorFromString("setPreferredImageVisibility:")
+        if item.responds(to: visibilitySelector) {
+            item.setValue(1, forKey: "preferredImageVisibility")
         }
     }
 
-    private func makePopoverContentController()
-        -> NSHostingController<StatusPopoverContent> {
-        let controller = NSHostingController(
-            rootView: StatusPopoverContent(model: popoverModel)
+    private func setNativeOffStateImage(_ symbol: String, on item: NSMenuItem) {
+        item.image = nil
+        item.state = .off
+        item.offStateImage = nativeSymbol(symbol)
+    }
+
+    private func nativeInfoItem(tag: NativeMenuTag) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.tag = tag.rawValue
+        item.isEnabled = false
+        return item
+    }
+
+    private func nativeActionItem(_ title: String,
+                                  symbol: String? = nil,
+                                  action: Selector,
+                                  keyEquivalent: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = self
+        if let symbol {
+            setNativeImage(symbol, on: item)
+        }
+        return item
+    }
+
+    private func nativeStateItem(tag: NativeMenuTag,
+                                 title: String,
+                                 action: Selector) -> NSMenuItem {
+        let item = nativeActionItem(title, action: action)
+        item.tag = tag.rawValue
+        item.state = .off
+        return item
+    }
+
+    private func configureNativeMenu() {
+        let menu = NSMenu(title: "HoRNDIS")
+        menu.delegate = self
+        menu.autoenablesItems = false
+
+        menu.addItem(nativeInfoItem(tag: .status))
+        menu.addItem(nativeInfoItem(tag: .device))
+        menu.addItem(nativeInfoItem(tag: .traffic))
+        menu.addItem(nativeInfoItem(tag: .authorization))
+
+        let authorize = nativeActionItem(
+            localized("menu.authorizeAndInstall", fallback: "Authorize and Install…"),
+            action: #selector(authorizeAndInstall)
         )
-        return controller
+        authorize.tag = NativeMenuTag.authorize.rawValue
+        menu.addItem(authorize)
+        menu.addItem(.separator())
+
+        menu.addItem(nativeStateItem(
+            tag: .connection,
+            title: localized("menu.usbTethering", fallback: "USB Tethering"),
+            action: #selector(toggleConnection(_:))
+        ))
+        menu.addItem(nativeStateItem(
+            tag: .launchAtLogin,
+            title: localized("menu.launchAtLogin", fallback: "Launch at Login"),
+            action: #selector(toggleLaunchAtLogin(_:))
+        ))
+
+        let details = NSMenuItem(title: localized("menu.details", fallback: "Details"),
+                                 action: nil,
+                                 keyEquivalent: "")
+        details.tag = NativeMenuTag.details.rawValue
+        let submenu = NSMenu(title: localized("menu.details", fallback: "Details"))
+        submenu.delegate = self
+        configureDetailsMenu(submenu)
+        details.submenu = submenu
+        menu.addItem(details)
+
+        menu.addItem(.separator())
+        menu.addItem(nativeActionItem(
+            localized("menu.quit", fallback: "Quit HoRNDIS Status"),
+            action: #selector(quit),
+            keyEquivalent: "q"
+        ))
+
+        statusItem.menu = menu
+        updateNativeVisibleContent()
     }
 
-    private func setInitialPopoverContentSize() {
-        guard let controller = legacyPopover.contentViewController
-                as? NSHostingController<StatusPopoverContent> else {
-            return
-        }
-        controller.view.layoutSubtreeIfNeeded()
-        let fitting = controller.sizeThatFits(
-            in: NSSize(width: StatusPopoverMetrics.width,
-                       height: .greatestFiniteMagnitude)
-        )
-        let target = NSSize(width: StatusPopoverMetrics.width,
-                            height: ceil(fitting.height))
-        guard target.width.isFinite,
-              target.height.isFinite,
-              target.height > 0,
-              target.height < 2_000,
-              (abs(legacyPopover.contentSize.width - target.width) > 0.5 ||
-                abs(legacyPopover.contentSize.height - target.height) > 0.5) else {
-            return
-        }
-        // Bound the initial hidden popover once. While it is visible, the
-        // hosting controller and AppKit animate SwiftUI's intrinsic-size
-        // changes together; repeatedly forcing contentSize during disclosure
-        // animation would restart the whole popover transition.
-        legacyPopover.contentSize = target
-    }
-
-    private func installOutsideClickMonitors() {
-        guard localOutsideClickMonitor == nil,
-              globalOutsideClickMonitor == nil,
-              localEscapeMonitor == nil,
-              resignActiveObserver == nil,
-              activeSpaceObserver == nil else { return }
-        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: outsideClickMask
-        ) { [weak self] event in
-            guard let self else { return event }
-            let popoverWindow = self.legacyPopover.contentViewController?.view.window
-            if event.window === popoverWindow {
-                // An initial mouse-down inside the popover may start the
-                // system switch's native drag loop. Never close its host
-                // until a later, independent outside click.
-                return event
-            }
-            if let button = self.legacyStatusItem?.button,
-               event.window === button.window,
-               button.bounds.contains(button.convert(event.locationInWindow,
-                                                     from: nil)) {
-                return event
-            }
-            DispatchQueue.main.async { [weak self] in
-                self?.closePopoverForOutsideClick()
-            }
-            return event
-        }
-        globalOutsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: outsideClickMask
-        ) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in
-                self?.closePopoverForOutsideClick()
-            }
-        }
-        localEscapeMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: .keyDown
-        ) { [weak self] event in
-            guard event.keyCode == 53,
-                  self?.legacyPopover.isShown == true else {
-                return event
-            }
-            DispatchQueue.main.async { [weak self] in
-                self?.closePopoverForOutsideClick()
-            }
-            return nil
-        }
-        resignActiveObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: NSApp,
-            queue: .main
-        ) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in
-                self?.closePopoverForOutsideClick()
-            }
-        }
-        activeSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in
-                self?.closePopoverForOutsideClick()
-            }
-        }
-    }
-
-    private func closeLegacyPopoverBeforeAction() {
-        guard legacyPopover.isShown else { return }
-        legacyPopover.performClose(nil)
-    }
-
-    private func closePopoverForOutsideClick() {
-        guard legacyPopover.isShown else { return }
-        legacyPopover.performClose(nil)
-    }
-
-    private func removeOutsideClickMonitors() {
-        if let monitor = localOutsideClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            localOutsideClickMonitor = nil
-        }
-        if let monitor = globalOutsideClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalOutsideClickMonitor = nil
-        }
-        if let monitor = localEscapeMonitor {
-            NSEvent.removeMonitor(monitor)
-            localEscapeMonitor = nil
-        }
-        if let observer = resignActiveObserver {
-            NotificationCenter.default.removeObserver(observer)
-            resignActiveObserver = nil
-        }
-        if let observer = activeSpaceObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            activeSpaceObserver = nil
-        }
-    }
-
-    private func configureLegacyPopover() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        legacyStatusItem = item
-        item.isVisible = true
-        let initialImage = NSImage(systemSymbolName: "personalhotspot",
-                                   accessibilityDescription: "HoRNDIS")
-            ?? NSImage(systemSymbolName: "network", accessibilityDescription: "HoRNDIS")
-        initialImage?.isTemplate = true
-        item.button?.image = initialImage
-        item.button?.target = self
-        item.button?.action = #selector(toggleStatusPopover(_:))
-        // We close on the next independent outside mouse-down instead of
-        // allowing AppKit to tear down the host during a switch drag.
-        legacyPopover.behavior = .applicationDefined
-        legacyPopover.animates = true
-        legacyPopover.delegate = self
-        legacyPopover.contentViewController = makePopoverContentController()
-        setInitialPopoverContentSize()
-        updateStatusItem()
-    }
-
-    @objc private func toggleStatusPopover(_ sender: NSStatusBarButton) {
-        if legacyPopover.isShown {
-            legacyPopover.performClose(sender)
-        } else {
-            legacyPopover.show(relativeTo: sender.bounds,
-                               of: sender,
-                               preferredEdge: .minY)
-        }
-    }
-
-    func popoverWillShow(_ notification: Notification) {
-        beginVisibleObservation()
-        installOutsideClickMonitors()
-    }
-
-    func popoverDidShow(_ notification: Notification) {
-        // Make only the popover key. This gives native controls the system
-        // active appearance without moving the user's foreground application
-        // behind the menu-bar utility.
-        legacyPopover.contentViewController?.view.window?.makeKey()
-    }
-
-    func popoverWillClose(_ notification: Notification) {
-        menuIsOpen = false
-        removeOutsideClickMonitors()
-        // Reset synchronously before creating the next host. This avoids a
-        // reopened collapsed view inheriting the old expanded content size.
-        popoverModel.detailsExpanded = false
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        // Recreate the host only after AppKit has completely closed the window.
-        // The application-defined lifetime lets the native switch finish its
-        // pointer tracking before close; rebuilding additionally clears any
-        // interrupted hover state before the next open.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.legacyPopover.isShown else { return }
-            self.legacyPopover.contentViewController = self.makePopoverContentController()
-            self.setInitialPopoverContentSize()
-        }
+    private func configureDetailsMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        menu.addItem(nativeInfoItem(tag: .detailIP))
+        menu.addItem(nativeInfoItem(tag: .detailInterface))
+        menu.addItem(nativeInfoItem(tag: .detailMAC))
+        menu.addItem(nativeInfoItem(tag: .detailPID))
+        menu.addItem(nativeInfoItem(tag: .detailMessage))
+        menu.addItem(nativeInfoItem(tag: .detailError))
+        menu.addItem(.separator())
+        menu.addItem(nativeActionItem(
+            localized("menu.saveDiagnosticReport", fallback: "Save Diagnostic Report…"),
+            symbol: "doc.badge.plus",
+            action: #selector(saveDiagnostics)
+        ))
+        menu.addItem(nativeActionItem(
+            localized("menu.openServiceLog", fallback: "Open Service Log"),
+            symbol: "doc.text",
+            action: #selector(openLog)
+        ))
+        menu.addItem(nativeActionItem(
+            localized("menu.reportBug", fallback: "Report a Bug…"),
+            symbol: "exclamationmark.bubble",
+            action: #selector(reportBug)
+        ))
     }
 
     private func updateStatusItem() {
@@ -1183,10 +742,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
         case .stopped, .unavailable:
             symbol = "network.slash"
         }
-        if popoverModel.statusSymbol != symbol {
-            popoverModel.statusSymbol = symbol
-        }
-        if let button = legacyStatusItem?.button,
+        if let button = statusItem.button,
            statusChanged || button.image == nil {
             let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "HoRNDIS")
                 ?? NSImage(systemSymbolName: "network", accessibilityDescription: "HoRNDIS")
@@ -1203,10 +759,19 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
         }
     }
 
-    private func summaryContent() -> [(title: String, symbol: String)] {
-        var content = [(snapshot.message, "personalhotspot")]
+    private func summaryContent() -> (
+        status: (title: String, symbol: String),
+        deviceAndDuration: (title: String, symbol: String),
+        traffic: String,
+        authorization: (title: String, symbol: String)?
+    ) {
+        let device: String
+        let duration: String
+        let traffic: String
         if let runtime = snapshot.runtime {
-            let device = runtime.device.isEmpty ? localized("No device", "未连接设备") : runtime.device
+            device = runtime.device.isEmpty
+                ? localized("summary.noDevice", fallback: "No device")
+                : runtime.device
             let received = ByteCountFormatter.string(fromByteCount: Int64(runtime.receivedBytes),
                                                      countStyle: .binary)
             let transmitted = ByteCountFormatter.string(fromByteCount: Int64(runtime.transmittedBytes),
@@ -1217,86 +782,156 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             let formatter = DateComponentsFormatter()
             formatter.allowedUnits = [.day, .hour, .minute, .second]
             formatter.unitsStyle = .abbreviated
-            let duration = runtime.connectedSince > 0 ? formatter.string(from: interval) ?? "—" : "—"
-            content.append(("\(localized("Device", "设备")): \(device)", "iphone"))
-            content.append(("↑ \(transmitted)    ↓ \(received)", "arrow.up.arrow.down"))
-            content.append(("\(localized("Connected", "连接时长")): \(duration)", "clock"))
-        } else if let address = snapshot.ipAddress {
-            content.append(("\(localized("Device", "设备")): Android", "iphone"))
-            content.append(("IP: \(address)", "globe"))
-            content.append(("\(localized("Connected", "连接时长")): —", "clock"))
+            duration = runtime.connectedSince > 0 ? formatter.string(from: interval) ?? "—" : "—"
+            traffic = "\(transmitted)    ↓ \(received)"
+        } else if snapshot.ipAddress != nil {
+            device = "Android"
+            duration = "—"
+            traffic = "0 bytes    ↓ 0 bytes"
         } else {
-            content.append(("\(localized("Device", "设备")): \(localized("No device", "未连接设备"))",
-                            "iphone"))
-            content.append(("↑ 0 bytes    ↓ 0 bytes", "arrow.up.arrow.down"))
-            content.append(("\(localized("Connected", "连接时长")): —", "clock"))
+            device = localized("summary.noDevice", fallback: "No device")
+            duration = "—"
+            traffic = "0 bytes    ↓ 0 bytes"
         }
-        content.append((authorizationState.title, authorizationState.symbol))
-        return content
+        let deviceAndDuration = String(
+            format: localized("summary.deviceAndDurationFormat", fallback: "%1$@ · %2$@"),
+            locale: Locale.current,
+            device,
+            duration
+        )
+        let authorization = authorizationState.warningTitle.map {
+            (title: $0, symbol: authorizationState.symbol)
+        }
+        return (
+            status: (snapshot.message, "personalhotspot"),
+            deviceAndDuration: (deviceAndDuration, "iphone"),
+            traffic: traffic,
+            authorization: authorization
+        )
     }
 
-    private func updatePopoverModel() {
-        let summary = summaryContent().enumerated().map { index, row in
-            StatusPopoverRow(id: "summary-\(index)",
-                             title: row.title,
-                             symbol: row.symbol)
+    private func updateInfoItem(in menu: NSMenu,
+                                tag: NativeMenuTag,
+                                title: String?,
+                                symbol: String?,
+                                usesStateColumn: Bool = false) {
+        guard let item = menu.item(withTag: tag.rawValue) else { return }
+        item.isHidden = title == nil
+        if let title {
+            if item.title != title {
+                item.title = title
+            }
+            if let symbol {
+                if usesStateColumn {
+                    setNativeOffStateImage(symbol, on: item)
+                } else {
+                    item.offStateImage = nil
+                    setNativeImage(symbol, on: item)
+                }
+            } else {
+                item.image = nil
+                item.offStateImage = nil
+            }
         }
-        if popoverModel.summaryRows != summary {
-            popoverModel.summaryRows = summary
-        }
+    }
 
-        var detailRows: [StatusPopoverRow] = []
-        if let runtime = snapshot.runtime {
-            let interface = runtime.hostInterface.isEmpty ? "—" : runtime.hostInterface
-            let address = snapshot.ipAddress ?? localized("configuring…", "配置中…")
-            detailRows.append(StatusPopoverRow(id: "ip",
-                                               title: "IP: \(address)",
-                                               symbol: "globe"))
-            detailRows.append(StatusPopoverRow(
-                id: "interface",
-                title: "\(localized("Interface", "接口")): \(interface)",
-                symbol: "network"
-            ))
-            if !runtime.deviceAddress.isEmpty {
-                detailRows.append(StatusPopoverRow(id: "mac",
-                                                   title: "MAC: \(runtime.deviceAddress)",
-                                                   symbol: "number"))
-            }
-            detailRows.append(StatusPopoverRow(id: "pid",
-                                               title: "PID: \(runtime.processID)",
-                                               symbol: "gearshape"))
-            if !runtime.detail.isEmpty {
-                detailRows.append(StatusPopoverRow(id: "detail",
-                                                   title: runtime.detail,
-                                                   symbol: "text.bubble"))
-            }
-        }
-        if let interfaceError {
-            detailRows.append(StatusPopoverRow(id: "error",
-                                               title: interfaceError,
-                                               symbol: "exclamationmark.triangle"))
-        }
-        if popoverModel.detailRows != detailRows {
-            popoverModel.detailRows = detailRows
-        }
+    private func updateNativeVisibleContent() {
+        guard let menu = statusItem.menu else { return }
+        let summary = summaryContent()
+        updateInfoItem(in: menu, tag: .status,
+                       title: summary.status.title, symbol: summary.status.symbol,
+                       usesStateColumn: true)
+        updateInfoItem(in: menu, tag: .device,
+                       title: summary.deviceAndDuration.title,
+                       symbol: summary.deviceAndDuration.symbol,
+                       usesStateColumn: true)
+        updateInfoItem(in: menu, tag: .traffic,
+                       title: summary.traffic, symbol: "arrow.up",
+                       usesStateColumn: true)
+        updateInfoItem(in: menu, tag: .authorization,
+                       title: summary.authorization?.title,
+                       symbol: summary.authorization?.symbol ?? "exclamationmark.shield",
+                       usesStateColumn: true)
+        menu.item(withTag: NativeMenuTag.authorize.rawValue)?.isHidden =
+            authorizationState != .required
 
         let serviceEnabled = snapshot.runtime != nil &&
             snapshot.state != .paused && snapshot.state != .stopped
         let displayedState = pendingConnectionState ?? serviceEnabled
-        if popoverModel.connectionOn != displayedState {
-            popoverModel.connectionOn = displayedState
+        if let connection = menu.item(withTag: NativeMenuTag.connection.rawValue) {
+            connection.state = displayedState ? .on : .off
+            connection.isEnabled = snapshot.runtime?.controlAvailable == true
         }
-        let connectionAvailable = snapshot.runtime?.controlAvailable == true
-        if popoverModel.connectionEnabled != connectionAvailable {
-            popoverModel.connectionEnabled = connectionAvailable
+        if let launchAtLogin = menu.item(withTag: NativeMenuTag.launchAtLogin.rawValue) {
+            launchAtLogin.state = LaunchAgentManager.isInstalled ? .on : .off
+            launchAtLogin.isEnabled = true
         }
-        let launchAtLogin = LaunchAgentManager.isInstalled
-        if popoverModel.launchAtLoginOn != launchAtLogin {
-            popoverModel.launchAtLoginOn = launchAtLogin
+        updateNativeDetailsContent()
+    }
+
+    private func updateNativeDetailsContent() {
+        guard let details = statusItem.menu?.item(withTag: NativeMenuTag.details.rawValue)?.submenu
+        else { return }
+
+        if let runtime = snapshot.runtime {
+            let interface = runtime.hostInterface.isEmpty ? "—" : runtime.hostInterface
+            let address = snapshot.ipAddress
+                ?? localized("summary.configuring", fallback: "configuring…")
+            updateInfoItem(in: details, tag: .detailIP,
+                           title: "IP: \(address)", symbol: "globe")
+            updateInfoItem(in: details, tag: .detailInterface,
+                           title: "\(localized("summary.interface", fallback: "Interface")): \(interface)",
+                           symbol: "network")
+            updateInfoItem(in: details, tag: .detailMAC,
+                           title: runtime.deviceAddress.isEmpty
+                               ? nil : "MAC: \(runtime.deviceAddress)",
+                           symbol: "number")
+            updateInfoItem(in: details, tag: .detailPID,
+                           title: "PID: \(runtime.processID)", symbol: "gearshape")
+            updateInfoItem(in: details, tag: .detailMessage,
+                           title: runtime.detail.isEmpty ? nil : runtime.detail,
+                           symbol: "text.bubble")
+        } else {
+            for tag in [NativeMenuTag.detailIP, .detailInterface, .detailMAC,
+                        .detailPID, .detailMessage] {
+                updateInfoItem(in: details, tag: tag, title: nil, symbol: "circle")
+            }
         }
-        let authorizationRequired = authorizationState == .required
-        if popoverModel.authorizationRequired != authorizationRequired {
-            popoverModel.authorizationRequired = authorizationRequired
+        updateInfoItem(in: details, tag: .detailError,
+                       title: interfaceError, symbol: "exclamationmark.triangle")
+    }
+
+    @objc private func toggleConnection(_ sender: NSMenuItem) {
+        let requestedState = sender.state != .on
+        _ = setConnectionEnabled(requestedState)
+        updateNativeVisibleContent()
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        let requestedState = sender.state != .on
+        _ = setLaunchAtLoginEnabled(requestedState)
+        updateNativeVisibleContent()
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        snapshot = readSnapshot()
+        authorizationState = ServiceAuthorizationManager.state
+        updateStatusItem()
+        updateNativeVisibleContent()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === statusItem.menu {
+            menuIsOpen = true
+            refresh()
+        } else {
+            updateNativeDetailsContent()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === statusItem.menu {
+            menuIsOpen = false
         }
     }
 
@@ -1334,11 +969,19 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
         return "HoRNDIS-Diagnostics-\(formatter.string(from: Date())).txt"
     }
 
-    @objc private func saveDiagnosticReport(openIssueAfterSaving: Bool) {
+    @objc private func saveDiagnostics() {
+        saveDiagnosticReport(openIssueAfterSaving: false)
+    }
+
+    @objc private func reportBug() {
+        saveDiagnosticReport(openIssueAfterSaving: true)
+    }
+
+    private func saveDiagnosticReport(openIssueAfterSaving: Bool) {
         guard let toolURL = bundledNetworkToolURL() else {
-            interfaceError = localized("The bundled HoRNDIS network tool is missing",
-                                       "内置的 HoRNDIS 网络工具缺失")
-            updatePopoverModel()
+            interfaceError = localized("error.bundledToolMissing",
+                                       fallback: "The bundled HoRNDIS network tool is missing")
+            updateNativeVisibleContent()
             return
         }
 
@@ -1351,7 +994,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             NSApp.activate(ignoringOtherApps: true)
         }
         let panel = NSSavePanel()
-        panel.title = localized("Save HoRNDIS Diagnostic Report", "保存 HoRNDIS 诊断报告")
+        panel.title = localized("diagnostics.savePanelTitle",
+                                fallback: "Save HoRNDIS Diagnostic Report")
         panel.nameFieldStringValue = diagnosticFilename()
         panel.allowedFileTypes = ["txt"]
         panel.canCreateDirectories = true
@@ -1380,8 +1024,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
                                   code: Int(process.terminationStatus),
                                   userInfo: [NSLocalizedDescriptionKey:
                                     detail?.isEmpty == false ? detail! : localized(
-                                        "Could not create the diagnostic report",
-                                        "无法创建诊断报告")])
+                                        "error.cannotCreateDiagnosticReport",
+                                        fallback: "Could not create the diagnostic report")])
                 }
                 DispatchQueue.main.async {
                     self?.interfaceError = nil
@@ -1393,9 +1037,10 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             } catch {
                 DispatchQueue.main.async {
                     self?.interfaceError = error.localizedDescription
-                    self?.updatePopoverModel()
+                    self?.updateNativeVisibleContent()
                     let alert = NSAlert()
-                    alert.messageText = localized("Diagnostic Report Failed", "诊断报告创建失败")
+                    alert.messageText = localized("diagnostics.failedTitle",
+                                                  fallback: "Diagnostic Report Failed")
                     alert.informativeText = error.localizedDescription
                     alert.runModal()
                 }
@@ -1420,7 +1065,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
             interfaceError = error.localizedDescription
             return false
         }
-        updatePopoverModel()
+        updateNativeVisibleContent()
         return true
     }
 
@@ -1449,8 +1094,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSPopove
                     throw NSError(domain: "HoRNDISStatus",
                                   code: Int(EIO),
                                   userInfo: [NSLocalizedDescriptionKey:
-                                      localized("The privileged service installation could not be verified",
-                                                "无法验证特权服务是否已正确安装")])
+                                      localized("error.installationNotVerified",
+                                                fallback: "The privileged service installation could not be verified")])
                 }
                 self.interfaceError = nil
             } catch {
@@ -1521,36 +1166,18 @@ private func handleCommandLine() -> Bool {
     return true
 }
 
-@available(macOS 13.0, *)
-private struct ModernHoRNDISStatusApplication: App {
-    @NSApplicationDelegateAdaptor(StatusAppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        MenuBarExtra {
-            StatusPopoverContent(model: appDelegate.popoverModel)
-        } label: {
-            StatusPopoverLabel(model: appDelegate.popoverModel)
-        }
-        .menuBarExtraStyle(.window)
-    }
-}
-
 @main
 private enum HoRNDISStatusEntryPoint {
     static func main() {
         if handleCommandLine() {
             return
         }
-        if #available(macOS 13.0, *) {
-            ModernHoRNDISStatusApplication.main()
-        } else {
-            MainActor.assumeIsolated {
-                let application = NSApplication.shared
-                let delegate = StatusAppDelegate()
-                application.delegate = delegate
-                application.setActivationPolicy(.accessory)
-                application.run()
-            }
+        MainActor.assumeIsolated {
+            let application = NSApplication.shared
+            let delegate = StatusAppDelegate()
+            application.delegate = delegate
+            application.setActivationPolicy(.accessory)
+            application.run()
         }
     }
 }

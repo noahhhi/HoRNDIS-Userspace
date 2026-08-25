@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+## 0.3.7 - 2026-08-25
+
+- Replace the window-style SwiftUI status panel with one native AppKit
+  `NSMenu` implementation for macOS 11 and later, restoring system-owned menu
+  corners, spacing, highlights, keyboard behavior, accessibility, and side
+  submenu presentation.
+- Replace liquid-glass USB Tethering and Launch at Login switches with standard
+  checked `NSMenuItem` commands, avoiding inactive white switch tracks while
+  retaining the existing service, authorization, diagnostics, localization,
+  login, and one-second visible-refresh behavior.
+- Move Details into a native side submenu containing the current runtime rows,
+  diagnostic report, service log, and guided Bug-report actions.
+- Request visible semantic menu-item images on macOS 27, where AppKit can hide
+  images whose new visibility preference remains automatic, while preserving
+  source and runtime compatibility with older SDKs and macOS 11–26.
+- Replace the inline English/Simplified Chinese language check with standard
+  macOS bundle localization and add Traditional Chinese, Japanese, Korean,
+  French, German, Spanish, Brazilian Portuguese, Italian, and Russian, while
+  retaining English fallback and per-app language selection.
+- Reduce the native root-menu summary to three information rows, combine the
+  device and connection duration, hide the authorization row while valid, and
+  use the traffic row's leading image as its upload arrow, remove the duplicate
+  inline upload marker, and shift the remaining traffic content left without
+  changing other root rows.
+- Align root-summary symbols with native checked commands through AppKit's
+  off-state image column while preserving non-checked accessibility semantics,
+  and keep the adjacent Authorize and Install action text-only.
+
 ## 0.3.6 - 2026-08-18
 
 - Hand root-published status snapshots to the console user so the menu bar

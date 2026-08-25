@@ -1,0 +1,43 @@
+"authorization.required" = "Autorizzazione: richiesta";
+
+"status.unavailable" = "Stato del servizio non disponibile";
+"status.stale" = "Lo stato del servizio non è aggiornato";
+"status.configuringDHCP" = "Configurazione DHCP";
+"status.connected" = "Tethering USB connesso";
+"status.connecting" = "Connessione";
+"status.waiting" = "In attesa del tethering USB";
+"status.paused" = "Connessione in pausa";
+"status.error" = "Errore del servizio";
+"status.stopped" = "Servizio arrestato";
+"status.unknown" = "Stato del servizio sconosciuto";
+
+"menu.authorizeAndInstall" = "Autorizza e installa…";
+"menu.usbTethering" = "Tethering USB";
+"menu.launchAtLogin" = "Apri al login";
+"menu.details" = "Dettagli";
+"menu.quit" = "Esci da HoRNDIS Status";
+"menu.saveDiagnosticReport" = "Salva resoconto diagnostico…";
+"menu.openServiceLog" = "Apri registro del servizio";
+"menu.reportBug" = "Segnala un problema…";
+
+"summary.noDevice" = "Nessun dispositivo";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "configurazione…";
+"summary.interface" = "Interfaccia";
+
+"diagnostics.savePanelTitle" = "Salva resoconto diagnostico HoRNDIS";
+"diagnostics.failedTitle" = "Resoconto diagnostico non riuscito";
+
+"error.bundledToolMissingOrUnsafe" = "Lo strumento di rete HoRNDIS incluso è assente o non sicuro";
+"error.cannotPrepareAuthorization" = "Impossibile preparare la richiesta di autorizzazione amministratore";
+"error.authorizationCancelled" = "L’autorizzazione amministratore è stata annullata";
+"error.authorizationFailed" = "Autorizzazione amministratore non riuscita";
+"error.cannotContactService" = "Impossibile contattare il servizio HoRNDIS";
+"error.cannotSendConnectionRequest" = "Impossibile inviare la richiesta di connessione";
+"error.bundledToolMissing" = "Lo strumento di rete HoRNDIS incluso è assente";
+"error.cannotCreateDiagnosticReport" = "Impossibile creare il resoconto diagnostico";
+"error.installationNotVerified" = "Impossibile verificare l’installazione del servizio con privilegi";
+"error.launchctlExited" = "launchctl è terminato con stato %d";
+"error.openExited" = "open è terminato con stato %d";
+"error.cannotCreateControlSocket" = "Impossibile creare il socket di controllo";
+"error.controlSocketPathTooLong" = "Il percorso del socket di controllo è troppo lungo";

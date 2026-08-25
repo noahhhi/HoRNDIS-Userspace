@@ -1,0 +1,43 @@
+"authorization.required" = "Authorization: Required";
+
+"status.unavailable" = "Service status unavailable";
+"status.stale" = "Service status is stale";
+"status.configuringDHCP" = "Configuring DHCP";
+"status.connected" = "USB tethering connected";
+"status.connecting" = "Connecting";
+"status.waiting" = "Waiting for USB tethering";
+"status.paused" = "Connection paused";
+"status.error" = "Service error";
+"status.stopped" = "Service stopped";
+"status.unknown" = "Unknown service state";
+
+"menu.authorizeAndInstall" = "Authorize and Install…";
+"menu.usbTethering" = "USB Tethering";
+"menu.launchAtLogin" = "Launch at Login";
+"menu.details" = "Details";
+"menu.quit" = "Quit HoRNDIS Status";
+"menu.saveDiagnosticReport" = "Save Diagnostic Report…";
+"menu.openServiceLog" = "Open Service Log";
+"menu.reportBug" = "Report a Bug…";
+
+"summary.noDevice" = "No device";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "configuring…";
+"summary.interface" = "Interface";
+
+"diagnostics.savePanelTitle" = "Save HoRNDIS Diagnostic Report";
+"diagnostics.failedTitle" = "Diagnostic Report Failed";
+
+"error.bundledToolMissingOrUnsafe" = "The bundled HoRNDIS network tool is missing or unsafe";
+"error.cannotPrepareAuthorization" = "Cannot prepare the administrator authorization request";
+"error.authorizationCancelled" = "Administrator authorization was cancelled";
+"error.authorizationFailed" = "Administrator authorization failed";
+"error.cannotContactService" = "Cannot contact the HoRNDIS service";
+"error.cannotSendConnectionRequest" = "Cannot send the connection request";
+"error.bundledToolMissing" = "The bundled HoRNDIS network tool is missing";
+"error.cannotCreateDiagnosticReport" = "Could not create the diagnostic report";
+"error.installationNotVerified" = "The privileged service installation could not be verified";
+"error.launchctlExited" = "launchctl exited with status %d";
+"error.openExited" = "open exited with status %d";
+"error.cannotCreateControlSocket" = "Cannot create the control socket";
+"error.controlSocketPathTooLong" = "Control socket path is too long";

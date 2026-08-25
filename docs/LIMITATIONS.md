@@ -24,11 +24,13 @@
 
 - The phone controls upstream selection and NAT. Android VPNs do not necessarily share their tunnel through native USB tethering.
 - Some rooted or modified Android builds have broken tethering BPF/conntrack offload. If DHCP and ICMP work while TCP stalls, temporarily disabling Android tether offload can distinguish that device problem from the macOS bridge. Restore the property after diagnosis if the device works with its default.
-- The menu bar USB Tethering switch resumes or pauses HoRNDIS discovery; it cannot enable Android USB tethering or unlock the phone.
+- The checked USB Tethering menu command resumes or pauses HoRNDIS discovery; it cannot enable Android USB tethering or unlock the phone.
 
 ## Menu bar status
 
-- Details expand and collapse in place with a native SwiftUI disclosure transition. The panel itself is Apple's window-style menu bar presentation (SwiftUI `MenuBarExtra` on macOS 13+, `NSPopover` on macOS 11–12); the system compositor owns its exterior corner geometry, which measurably differs from a pull-down `NSMenu`, and no public API changes it. See [MENU_UI_GUIDELINES.md](MENU_UI_GUIDELINES.md) for the full framework boundary.
+- The status UI is a standard AppKit pull-down `NSMenu` on every supported macOS version. USB Tethering and Launch at Login are checked menu commands rather than draggable switches, and Details opens a native side submenu rather than expanding in place. AppKit owns the menu geometry and animation. See [MENU_UI_GUIDELINES.md](MENU_UI_GUIDELINES.md) for the full framework contract.
+- The root summary uses three native information rows. A valid authorization state is intentionally omitted; the authorization warning and install action appear only when repair is required. The traffic row uses its leading image as the upload arrow and begins its title with the transmitted total; other summary rows retain their semantic images.
+- The menu bar app includes English, Simplified Chinese, Traditional Chinese, Japanese, Korean, French, German, Spanish, Brazilian Portuguese, Italian, and Russian bundle localizations. Other system languages use the English development language.
 - Traffic totals are Ethernet frame bytes for the current connection, not carrier-billing counters. They reset after disconnect, service restart, or a new USB session.
 - Status refreshes every two seconds while the menu is closed and every second while it is visible, so very short transitions can still be missed.
 - The status file contains the device product name, RNDIS MAC, interface name, counters, and daemon PID. It is local, restricted to the current console user and root, and never uploaded by this project.

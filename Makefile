@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.6
+VERSION ?= 0.3.7
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -27,8 +27,10 @@ STATUS_APP_BINARY := $(STATUS_APP)/Contents/MacOS/horndis-status
 STATUS_APP_ICON := $(STATUS_APP)/Contents/Resources/HoRNDISStatus.icns
 STATUS_APP_NETWORK_TOOL := $(STATUS_APP)/Contents/Resources/horndis
 STATUS_APP_UNINSTALLER := $(STATUS_APP)/Contents/Resources/horndis-uninstall
-STATUS_APP_LOCALIZATIONS := $(STATUS_APP)/Contents/Resources/en.lproj/InfoPlist.strings \
-	$(STATUS_APP)/Contents/Resources/zh-Hans.lproj/InfoPlist.strings
+STATUS_LANGUAGES := en zh-Hans zh-Hant ja ko fr de es pt-BR it ru
+STATUS_APP_LOCALIZATIONS := $(foreach language,$(STATUS_LANGUAGES),\
+	$(STATUS_APP)/Contents/Resources/$(language).lproj/InfoPlist.strings \
+	$(STATUS_APP)/Contents/Resources/$(language).lproj/Localizable.strings)
 STATUS_ICON_GENERATOR := $(BUILD_DIR)/generate-horndis-icon
 STATUS_ICONSET := $(BUILD_DIR)/HoRNDISStatus.iconset
 STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
@@ -43,7 +45,6 @@ DIAGNOSTICS_PRIVACY_CONTRACT_TEST := $(BUILD_DIR)/diagnostics-privacy-contract-t
 DIAGNOSTICS_REDACTION_TEST := $(BUILD_DIR)/diagnostics-redaction-tests
 DEVICE_ALIASES_TEST := $(BUILD_DIR)/device-aliases-tests
 USB_TRANSPORT_MEMORY_CONTRACT_TEST := $(BUILD_DIR)/usb-transport-memory-contract-tests
-STATUS_SWITCH_PROBE := $(BUILD_DIR)/status-switch-appearance-probe
 APP_LANGUAGE_PROBE := $(BUILD_DIR)/app-language-probe
 MENU_UI_CONTRACT_TEST := $(BUILD_DIR)/menu-ui-contract-tests
 MANPAGE := Documentation/horndis.1
@@ -84,6 +85,10 @@ $(STATUS_APP_UNINSTALLER): Packaging/horndis-uninstall
 	install -m 0755 "$<" "$@"
 
 $(STATUS_APP)/Contents/Resources/%.lproj/InfoPlist.strings: StatusApp/%.lproj/InfoPlist.strings
+	@mkdir -p "$(@D)"
+	install -m 0644 "$<" "$@"
+
+$(STATUS_APP)/Contents/Resources/%.lproj/Localizable.strings: StatusApp/%.lproj/Localizable.strings
 	@mkdir -p "$(@D)"
 	install -m 0644 "$<" "$@"
 
@@ -137,11 +142,6 @@ $(USB_TRANSPORT_MEMORY_CONTRACT_TEST): Tests/USBTransportMemoryContractTests.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-$(STATUS_SWITCH_PROBE): Tests/StatusSwitchAppearanceProbe.swift
-	@mkdir -p $(@D)
-	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx13.0 \
-		-framework AppKit -framework SwiftUI $< -o $@
-
 $(APP_LANGUAGE_PROBE): Tests/AppLanguageProbe.swift
 	@mkdir -p $(@D)
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
@@ -152,7 +152,7 @@ $(MENU_UI_CONTRACT_TEST): Tests/MenuUIContractTests.swift
 	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
 		-framework Foundation $< -o $@
 
-test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RECONNECT_CONTRACT_TEST) $(INTERFACE_SELECTION_TEST) $(INTERFACE_LIFECYCLE_CONTRACT_TEST) $(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) $(DIAGNOSTICS_REDACTION_TEST) $(DEVICE_ALIASES_TEST) $(USB_TRANSPORT_MEMORY_CONTRACT_TEST) $(STATUS_TARGET) $(STATUS_SWITCH_PROBE) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
+test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RECONNECT_CONTRACT_TEST) $(INTERFACE_SELECTION_TEST) $(INTERFACE_LIFECYCLE_CONTRACT_TEST) $(DIAGNOSTICS_PRIVACY_CONTRACT_TEST) $(DIAGNOSTICS_REDACTION_TEST) $(DEVICE_ALIASES_TEST) $(USB_TRANSPORT_MEMORY_CONTRACT_TEST) $(STATUS_TARGET) $(APP_LANGUAGE_PROBE) $(MENU_UI_CONTRACT_TEST)
 	$(TEST_TARGET)
 	$(RUNTIME_STATUS_TEST)
 	$(SUPERVISOR_CHANNEL_TEST)
@@ -164,8 +164,7 @@ test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RE
 	$(DEVICE_ALIASES_TEST)
 	$(USB_TRANSPORT_MEMORY_CONTRACT_TEST) Sources/USBTransport.mm
 	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift
-	$(STATUS_SWITCH_PROBE) "$(BUILD_DIR)/status-switch-appearance.png"
-	$(APP_LANGUAGE_PROBE) "$(STATUS_APP)"
+	$(APP_LANGUAGE_PROBE) "$(STATUS_APP)" StatusApp/HoRNDISStatus.swift
 	$(STATUS_APP_BINARY) --version
 	test -x "$(STATUS_APP_NETWORK_TOOL)"
 	test -x "$(STATUS_APP_UNINSTALLER)"

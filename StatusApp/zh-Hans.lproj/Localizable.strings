@@ -1,0 +1,43 @@
+"authorization.required" = "授权状态：需要授权";
+
+"status.unavailable" = "无法读取服务状态";
+"status.stale" = "服务状态已过期";
+"status.configuringDHCP" = "正在配置 DHCP";
+"status.connected" = "USB 网络共享已连接";
+"status.connecting" = "正在连接";
+"status.waiting" = "等待 USB 网络共享";
+"status.paused" = "连接已暂停";
+"status.error" = "服务错误";
+"status.stopped" = "服务已停止";
+"status.unknown" = "未知服务状态";
+
+"menu.authorizeAndInstall" = "授权并安装…";
+"menu.usbTethering" = "USB 网络共享";
+"menu.launchAtLogin" = "登录时启动";
+"menu.details" = "详细信息";
+"menu.quit" = "退出 HoRNDIS 状态栏";
+"menu.saveDiagnosticReport" = "保存诊断报告…";
+"menu.openServiceLog" = "打开服务日志";
+"menu.reportBug" = "报告问题…";
+
+"summary.noDevice" = "未连接设备";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "配置中…";
+"summary.interface" = "接口";
+
+"diagnostics.savePanelTitle" = "保存 HoRNDIS 诊断报告";
+"diagnostics.failedTitle" = "诊断报告创建失败";
+
+"error.bundledToolMissingOrUnsafe" = "内置的 HoRNDIS 网络工具缺失或权限不安全";
+"error.cannotPrepareAuthorization" = "无法准备管理员授权请求";
+"error.authorizationCancelled" = "管理员授权已取消";
+"error.authorizationFailed" = "管理员授权失败";
+"error.cannotContactService" = "无法连接 HoRNDIS 服务";
+"error.cannotSendConnectionRequest" = "无法发送连接请求";
+"error.bundledToolMissing" = "内置的 HoRNDIS 网络工具缺失";
+"error.cannotCreateDiagnosticReport" = "无法创建诊断报告";
+"error.installationNotVerified" = "无法验证特权服务是否已正确安装";
+"error.launchctlExited" = "launchctl 已退出，状态码为 %d";
+"error.openExited" = "open 已退出，状态码为 %d";
+"error.cannotCreateControlSocket" = "无法创建控制套接字";
+"error.controlSocketPathTooLong" = "控制套接字路径过长";

@@ -1,0 +1,43 @@
+"authorization.required" = "認証：許可が必要";
+
+"status.unavailable" = "サービスの状態を取得できません";
+"status.stale" = "サービスの状態が古くなっています";
+"status.configuringDHCP" = "DHCP を設定中";
+"status.connected" = "USB テザリング接続済み";
+"status.connecting" = "接続中";
+"status.waiting" = "USB テザリングを待機中";
+"status.paused" = "接続を一時停止中";
+"status.error" = "サービスエラー";
+"status.stopped" = "サービス停止中";
+"status.unknown" = "不明なサービス状態";
+
+"menu.authorizeAndInstall" = "認証してインストール…";
+"menu.usbTethering" = "USB テザリング";
+"menu.launchAtLogin" = "ログイン時に起動";
+"menu.details" = "詳細";
+"menu.quit" = "HoRNDIS Status を終了";
+"menu.saveDiagnosticReport" = "診断レポートを保存…";
+"menu.openServiceLog" = "サービスログを開く";
+"menu.reportBug" = "問題を報告…";
+
+"summary.noDevice" = "デバイスなし";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "設定中…";
+"summary.interface" = "インターフェイス";
+
+"diagnostics.savePanelTitle" = "HoRNDIS 診断レポートを保存";
+"diagnostics.failedTitle" = "診断レポートの作成に失敗しました";
+
+"error.bundledToolMissingOrUnsafe" = "同梱の HoRNDIS ネットワークツールが見つからないか、安全ではありません";
+"error.cannotPrepareAuthorization" = "管理者認証の要求を準備できません";
+"error.authorizationCancelled" = "管理者認証がキャンセルされました";
+"error.authorizationFailed" = "管理者認証に失敗しました";
+"error.cannotContactService" = "HoRNDIS サービスに接続できません";
+"error.cannotSendConnectionRequest" = "接続要求を送信できません";
+"error.bundledToolMissing" = "同梱の HoRNDIS ネットワークツールが見つかりません";
+"error.cannotCreateDiagnosticReport" = "診断レポートを作成できませんでした";
+"error.installationNotVerified" = "特権サービスが正しくインストールされたことを確認できません";
+"error.launchctlExited" = "launchctl はステータス %d で終了しました";
+"error.openExited" = "open はステータス %d で終了しました";
+"error.cannotCreateControlSocket" = "制御ソケットを作成できません";
+"error.controlSocketPathTooLong" = "制御ソケットのパスが長すぎます";

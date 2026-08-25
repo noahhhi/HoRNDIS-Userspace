@@ -30,29 +30,33 @@ Enable **USB tethering** in Android settings. The service will discover the RNDI
 
 ## Menu bar
 
+The app uses standard macOS bundle localization and follows the system or per-app language selection. Included languages are English, Simplified Chinese, Traditional Chinese, Japanese, Korean, French, German, Spanish, Brazilian Portuguese, Italian, and Russian. Change the per-app language in **System Settings → General → Language & Region → Applications**, then reopen HoRNDIS Status.
+
 The status item uses Apple SF Symbols and is deliberately compact by default:
 
-- connected Android device name;
-- received and transmitted bytes for the current USB session;
-- current connection duration;
-- persistent administrator authorization state;
-- a USB Tethering switch at the right edge;
-- a Launch at Login switch;
-- a Details row that expands in place.
+- connection state;
+- connected Android device name and current duration on one row;
+- transmitted and received bytes for the current USB session;
+- administrator authorization only when installation or repair is required;
+- a checked USB Tethering menu command;
+- a checked Launch at Login menu command;
+- a Details item that opens a system submenu at the side.
 
-Opening Details expands the panel in place and shows the DHCP address, feth interface, device MAC, service process ID, last service detail, service-log access, a diagnostic-report save action, and a guided bug-report action inside the same panel.
+Opening Details shows a native side submenu containing the DHCP address, feth interface, device MAC, service process ID, last service detail, service-log access, a diagnostic-report save action, and a guided bug-report action.
 
 The status item is a native macOS template symbol, and the menu uses dynamic system colors. Both follow the current light or dark appearance automatically, including menu bars whose appearance differs from the app appearance.
 
-On macOS 13 and later, HoRNDIS uses SwiftUI's `MenuBarExtra` with the window style — Apple's menu bar presentation for data-rich content with standard controls — and on macOS 11 and 12 it uses an AppKit `NSPopover` compatibility path. The system owns the panel's exterior shape, material, shadow, light/dark appearance, and selected accent color. The switches are native SwiftUI toggles with the system switch material and animation, and Details expands and collapses with a single local SwiftUI disclosure transition. HoRNDIS does not draw or clip a replacement panel and does not become the foreground app while the panel is open.
+On every supported release from macOS 11 onward, HoRNDIS uses AppKit's standard `NSStatusItem`, `NSMenu`, and `NSMenuItem`. AppKit owns the menu's exterior shape, material, shadow, spacing, highlight, selected accent color, checkmarks, keyboard behavior, accessibility, light/dark appearance, and Details submenu animation. HoRNDIS does not draw or clip a replacement menu and does not become the foreground app while the menu is open.
 
-**Authorization: Granted** means the root-owned network helper and its LaunchDaemon configuration are securely installed. If either is missing, incorrectly owned, writable by non-root users, or invalid, the menu reports **Authorization: Required** and adds **Authorize and Install…** directly below it. That action uses the standard macOS administrator authentication dialog to execute only the fixed `horndis service install` command bundled with the app. HoRNDIS never receives or stores the password. The equivalent terminal workflow is `horndis install`.
+When authorization is valid, the compact summary shows no authorization row. If the root-owned network helper or its LaunchDaemon configuration is missing, incorrectly owned, writable by non-root users, or invalid, the menu reports **Authorization: Required** with a shield and adds the text-only **Authorize and Install…** action directly below it without repeating that icon. The action uses the standard macOS administrator authentication dialog to execute only the fixed `horndis service install` command bundled with the app. HoRNDIS never receives or stores the password. The equivalent terminal workflow is `horndis install`.
 
-Turning the **USB Tethering** switch off pauses the RNDIS bridge but keeps the background service available. Turning it on resumes discovery and connects when Android USB tethering is enabled. It cannot turn on Android's tethering setting remotely.
+The two checked commands rely on AppKit's standard checkmark and do not add a second leading image. Details relies on the native submenu arrow, and Quit relies on its `⌘Q` shortcut. The root-summary SF Symbols use AppKit's off-state image slot, which aligns them with the native checkmarks without marking those information rows as checked or creating a separate image column. Details-submenu information retains ordinary semantic SF Symbols in its independent menu. In the traffic row, the leading symbol is the upload arrow itself; the title starts with the transmitted total and then shows the explicit `↓` received marker.
+
+Clearing the checkmark beside **USB Tethering** pauses the RNDIS bridge but keeps the background service available. Selecting it again restores the checkmark, resumes discovery, and connects when Android USB tethering is enabled. It cannot turn on Android's tethering setting remotely.
 
 While a device is connected, HoRNDIS also watches the bridge interface's IPv4 address. If macOS removes the address — for example after a VPN connects or disconnects and reorders the network configuration — HoRNDIS requests a fresh DHCP lease automatically within about fifteen seconds; no manual restart is needed.
 
-The menu bar app reads `/var/run/horndis/status.json` every two seconds while closed and every second while its panel is visible. It updates the existing labels and native switches in place instead of rebuilding the open panel. It does not inspect packet contents or send telemetry. The runtime directory, status file, and control socket are accessible only to the current console user and root. Connection requests go to `/var/run/horndis/control.sock` and also receive a peer-UID check.
+The menu bar app reads `/var/run/horndis/status.json` every two seconds while closed and every second while its menu is visible. It updates the existing native menu item titles, enabled states, checkmarks, and submenu rows in place instead of rebuilding the open menu. It does not inspect packet contents or send telemetry. The runtime directory, status file, and control socket are accessible only to the current console user and root. Connection requests go to `/var/run/horndis/control.sock` and also receive a peer-UID check.
 
 ## Command-line status
 

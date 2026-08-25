@@ -1,0 +1,43 @@
+"authorization.required" = "Autorisierung: Erforderlich";
+
+"status.unavailable" = "Dienststatus nicht verfügbar";
+"status.stale" = "Dienststatus ist veraltet";
+"status.configuringDHCP" = "DHCP wird konfiguriert";
+"status.connected" = "USB-Tethering verbunden";
+"status.connecting" = "Verbindung wird hergestellt";
+"status.waiting" = "Warten auf USB-Tethering";
+"status.paused" = "Verbindung pausiert";
+"status.error" = "Dienstfehler";
+"status.stopped" = "Dienst gestoppt";
+"status.unknown" = "Unbekannter Dienststatus";
+
+"menu.authorizeAndInstall" = "Autorisieren und installieren…";
+"menu.usbTethering" = "USB-Tethering";
+"menu.launchAtLogin" = "Bei Anmeldung öffnen";
+"menu.details" = "Details";
+"menu.quit" = "HoRNDIS Status beenden";
+"menu.saveDiagnosticReport" = "Diagnosebericht sichern…";
+"menu.openServiceLog" = "Dienstprotokoll öffnen";
+"menu.reportBug" = "Problem melden…";
+
+"summary.noDevice" = "Kein Gerät";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "Konfiguration…";
+"summary.interface" = "Schnittstelle";
+
+"diagnostics.savePanelTitle" = "HoRNDIS-Diagnosebericht sichern";
+"diagnostics.failedTitle" = "Diagnosebericht fehlgeschlagen";
+
+"error.bundledToolMissingOrUnsafe" = "Das enthaltene HoRNDIS-Netzwerktool fehlt oder ist unsicher";
+"error.cannotPrepareAuthorization" = "Die Administratorautorisierung kann nicht vorbereitet werden";
+"error.authorizationCancelled" = "Die Administratorautorisierung wurde abgebrochen";
+"error.authorizationFailed" = "Die Administratorautorisierung ist fehlgeschlagen";
+"error.cannotContactService" = "Der HoRNDIS-Dienst kann nicht erreicht werden";
+"error.cannotSendConnectionRequest" = "Die Verbindungsanfrage kann nicht gesendet werden";
+"error.bundledToolMissing" = "Das enthaltene HoRNDIS-Netzwerktool fehlt";
+"error.cannotCreateDiagnosticReport" = "Der Diagnosebericht konnte nicht erstellt werden";
+"error.installationNotVerified" = "Die Installation des privilegierten Dienstes konnte nicht überprüft werden";
+"error.launchctlExited" = "launchctl wurde mit Status %d beendet";
+"error.openExited" = "open wurde mit Status %d beendet";
+"error.cannotCreateControlSocket" = "Der Steuer-Socket kann nicht erstellt werden";
+"error.controlSocketPathTooLong" = "Der Pfad des Steuer-Sockets ist zu lang";

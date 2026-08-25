@@ -1,0 +1,43 @@
+"authorization.required" = "Autorización: necesaria";
+
+"status.unavailable" = "Estado del servicio no disponible";
+"status.stale" = "El estado del servicio no está actualizado";
+"status.configuringDHCP" = "Configurando DHCP";
+"status.connected" = "Conexión USB compartida";
+"status.connecting" = "Conectando";
+"status.waiting" = "Esperando la conexión compartida por USB";
+"status.paused" = "Conexión en pausa";
+"status.error" = "Error del servicio";
+"status.stopped" = "Servicio detenido";
+"status.unknown" = "Estado del servicio desconocido";
+
+"menu.authorizeAndInstall" = "Autorizar e instalar…";
+"menu.usbTethering" = "Compartir Internet por USB";
+"menu.launchAtLogin" = "Abrir al iniciar sesión";
+"menu.details" = "Detalles";
+"menu.quit" = "Salir de HoRNDIS Status";
+"menu.saveDiagnosticReport" = "Guardar informe de diagnóstico…";
+"menu.openServiceLog" = "Abrir registro del servicio";
+"menu.reportBug" = "Informar de un problema…";
+
+"summary.noDevice" = "Ningún dispositivo";
+"summary.deviceAndDurationFormat" = "%1$@ · %2$@";
+"summary.configuring" = "configurando…";
+"summary.interface" = "Interfaz";
+
+"diagnostics.savePanelTitle" = "Guardar informe de diagnóstico de HoRNDIS";
+"diagnostics.failedTitle" = "Error del informe de diagnóstico";
+
+"error.bundledToolMissingOrUnsafe" = "La herramienta de red HoRNDIS incluida no está disponible o no es segura";
+"error.cannotPrepareAuthorization" = "No se puede preparar la solicitud de autorización del administrador";
+"error.authorizationCancelled" = "Se canceló la autorización del administrador";
+"error.authorizationFailed" = "Falló la autorización del administrador";
+"error.cannotContactService" = "No se puede contactar con el servicio HoRNDIS";
+"error.cannotSendConnectionRequest" = "No se puede enviar la solicitud de conexión";
+"error.bundledToolMissing" = "La herramienta de red HoRNDIS incluida no está disponible";
+"error.cannotCreateDiagnosticReport" = "No se pudo crear el informe de diagnóstico";
+"error.installationNotVerified" = "No se pudo verificar la instalación del servicio con privilegios";
+"error.launchctlExited" = "launchctl terminó con el estado %d";
+"error.openExited" = "open terminó con el estado %d";
+"error.cannotCreateControlSocket" = "No se puede crear el socket de control";
+"error.controlSocketPathTooLong" = "La ruta del socket de control es demasiado larga";
