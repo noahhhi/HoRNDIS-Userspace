@@ -26,6 +26,10 @@ Or install the package directly:
 > [!IMPORTANT]
 > This project currently uses a free Apple Developer account, which cannot provide the paid Developer ID certificate required to sign and notarize the installer for public distribution. macOS may therefore block the first launch until you approve it with **Open Anyway**. You do not need to disable SIP or reduce system security.
 
+If `/Library/PrivilegedHelperTools` is missing, the installer recreates it with
+the standard root-owned permissions before installing the helper. No manual
+directory preparation is required.
+
 Enable **USB tethering** in Android settings. The service will discover the RNDIS interfaces automatically while leaving a separate ADB interface available.
 
 ## Menu bar

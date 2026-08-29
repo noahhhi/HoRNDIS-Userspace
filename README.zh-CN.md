@@ -32,6 +32,9 @@ brew install --cask noahhhi/tap/horndis
 > [!IMPORTANT]
 > 本项目目前使用免费 Apple Developer 账户，无法获得公开分发安装包所需的付费 Developer ID 证书，因此不能对安装包进行签名和公证。macOS 可能会阻止首次打开，需要按上述步骤点击“**仍要打开**”。此过程不需要关闭 SIP 或降低系统安全级别。
 
+如果系统缺少 `/Library/PrivilegedHelperTools`，安装程序会按标准的 root
+所有权和权限自动重新创建，无需用户手动准备目录。
+
 在 Android 上开启 **USB 网络共享**，然后验证：
 
 ```sh
@@ -155,6 +158,7 @@ RNDIS 目前支持与 CDC 数据接口配对的 Android gadget 布局 `e0/01/03`
 - `cannot claim ... interface`：停止占用接口 0/1 的其他 RNDIS 驱动或应用。接口 2 上的 ADB 可以共存。
 - 菜单在显示设备后一直停在“正在配置 DHCP”：当前版本会在每次连接时自动启用实际选择的 feth 接口并重启 DHCP。旧版本可依次运行 `sudo ifconfig feth99 up` 和 `sudo ipconfig set feth99 DHCP`，在 Android 上关闭再打开 USB 网络共享，然后升级或重新安装 HoRNDIS 以获得永久修复。如果当前版本仍失败，请把 `horndis status` 输出的接口代入 `ipconfig getsummary <接口>`，并检查 `/var/log/horndis.log` 中明确的 DHCP 刷新错误。
 - 其他应用已经占用 `feth98` 或 `feth99`：当前版本会自动跳过整对接口，并在状态/“详细信息”中显示实际选中的名称；HoRNDIS 不会重配或删除已有接口。
+- `cannot copy the privileged helper: No such file or directory`：升级到 v0.3.8 或更高版本后重试；当前安装程序会先安全地重新创建缺失的 `/Library/PrivilegedHelperTools`，再复制 helper。
 - Homebrew Cask 和 Release `.pkg` 会在安装包流程中更新特权辅助程序及菜单 LaunchAgent，不使用本地编译器。
 - 测试手机路径时如需保持 Wi-Fi 活跃，可运行 `ping -b <接口> 8.8.8.8`，把 `<接口>` 替换为 `horndis status` 显示的名称。
 - Android VPN 应用通常不会通过原生 USB 网络共享转发其隧道。如果手机底层 Wi-Fi 在不使用 VPN 时无法访问某个目标，Mac 通常也无法通过共享访问该目标。

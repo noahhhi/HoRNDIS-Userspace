@@ -131,13 +131,13 @@ bool writeAll(int descriptor, const std::string& contents, std::string& error) {
 }
 
 bool ensureHelperDirectory(std::string& error) {
-    if (mkdir(kHelperDirectory, 0755) == 0) {
+    if (mkdir(kHelperDirectory, 01755) == 0) {
         if (chown(kHelperDirectory, 0, 0) != 0) {
             error = "cannot set privileged helper directory ownership: " +
                     std::string(std::strerror(errno));
             return false;
         }
-        if (chmod(kHelperDirectory, 0755) != 0) {
+        if (chmod(kHelperDirectory, 01755) != 0) {
             error = "cannot set privileged helper directory permissions: " +
                     std::string(std::strerror(errno));
             return false;

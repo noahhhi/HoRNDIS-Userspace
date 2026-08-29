@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.8 - 2026-08-30
+
+- Create a missing `/Library/PrivilegedHelperTools` directory with the standard
+  root ownership and `01755` permissions before stopping the current service
+  or copying the privileged helper, so CLI, menu, PKG, and Homebrew installation
+  all recover automatically without interrupting an existing service first.
+
 ## 0.3.7 - 2026-08-25
 
 - Replace the window-style SwiftUI status panel with one native AppKit

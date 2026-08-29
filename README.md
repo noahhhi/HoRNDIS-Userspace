@@ -32,6 +32,10 @@ brew install --cask noahhhi/tap/horndis
 > [!IMPORTANT]
 > This project currently uses a free Apple Developer account, which cannot provide the paid Developer ID certificate required to sign and notarize the installer for public distribution. macOS may therefore block the first launch until you approve it with **Open Anyway**. You do not need to disable SIP or reduce system security.
 
+The installer recreates `/Library/PrivilegedHelperTools` with the standard
+root-owned permissions if that system directory is missing; no manual directory
+preparation is required.
+
 Enable **USB tethering** on Android, then verify:
 
 ```sh
@@ -155,6 +159,7 @@ Before opening a bug, reproduce it and create a fresh report with **HoRNDIS → 
 - `cannot claim ... interface`: stop another RNDIS driver or application that owns interfaces 0/1. ADB on interface 2 is compatible.
 - Menu stuck at **Configuring DHCP** after the device appears: current builds automatically raise the selected feth interface and restart DHCP on every connection. With an older build, run `sudo ifconfig feth99 up` followed by `sudo ipconfig set feth99 DHCP`, toggle Android USB tethering off/on, then upgrade or reinstall HoRNDIS for the permanent fix. If a current build still fails, use the interface printed by `horndis status` with `ipconfig getsummary <interface>` and inspect `/var/log/horndis.log` for the explicit DHCP-refresh error.
 - Another application already uses `feth98` or `feth99`: current builds skip the occupied pair automatically and report the selected interface in status/Details. HoRNDIS never reconfigures or removes the pre-existing interfaces.
+- `cannot copy the privileged helper: No such file or directory`: upgrade to v0.3.8 or later and retry. Current installers securely recreate a missing `/Library/PrivilegedHelperTools` directory before copying the helper.
 - The Homebrew Cask and release `.pkg` update the privileged helper and menu LaunchAgent as part of package installation; no local compiler is used.
 - To keep Wi-Fi active while testing the phone path, bind the socket with `ping -b <interface> 8.8.8.8`, replacing `<interface>` with the value printed by `horndis status`.
 - Android VPN apps normally do not share their tunnel through native USB tethering. If the phone's underlying Wi-Fi cannot access a destination without its VPN, that destination will also be unavailable to the Mac.

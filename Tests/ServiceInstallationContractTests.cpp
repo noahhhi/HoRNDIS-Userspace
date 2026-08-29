@@ -23,7 +23,8 @@ int main(int argc, char* argv[]) {
 
     assert(source.find("constexpr const char* kHelperDirectory = "
                        "\"/Library/PrivilegedHelperTools\"") != std::string::npos);
-    assert(source.find("mkdir(kHelperDirectory, 0755)") != std::string::npos);
+    assert(source.find("mkdir(kHelperDirectory, 01755)") != std::string::npos);
+    assert(source.find("chmod(kHelperDirectory, 01755)") != std::string::npos);
     assert(source.find("errno != EEXIST") != std::string::npos);
     assert(source.find("lstat(kHelperDirectory, &metadata)") != std::string::npos);
     assert(source.find("S_ISDIR(metadata.st_mode)") != std::string::npos);

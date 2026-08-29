@@ -26,6 +26,9 @@ brew install --cask noahhhi/tap/horndis
 > [!IMPORTANT]
 > 本项目目前使用免费 Apple Developer 账户，无法获得公开分发安装包所需的付费 Developer ID 证书，因此不能对安装包进行签名和公证。macOS 可能会阻止首次打开，需要按上述步骤点击“**仍要打开**”。此过程不需要关闭 SIP 或降低系统安全级别。
 
+如果系统缺少 `/Library/PrivilegedHelperTools`，安装程序会先按标准的 root
+所有权和权限重新创建该目录，再安装 helper；用户无需手动准备目录。
+
 在 Android 设置中打开 **USB 网络共享**。服务会自动发现 RNDIS 接口；如果手机还提供独立的 ADB 接口，ADB 可以同时使用。
 
 ## 菜单栏
