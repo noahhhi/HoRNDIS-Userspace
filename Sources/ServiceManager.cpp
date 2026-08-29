@@ -23,6 +23,7 @@ namespace horndis {
 namespace {
 
 constexpr const char* kLabel = "io.github.noahhhi.horndis";
+constexpr const char* kHelperDirectory = "/Library/PrivilegedHelperTools";
 constexpr const char* kHelper = "/Library/PrivilegedHelperTools/io.github.noahhhi.horndis";
 constexpr const char* kPlist = "/Library/LaunchDaemons/io.github.noahhhi.horndis.plist";
 
@@ -129,6 +130,39 @@ bool writeAll(int descriptor, const std::string& contents, std::string& error) {
     return true;
 }
 
+bool ensureHelperDirectory(std::string& error) {
+    if (mkdir(kHelperDirectory, 0755) == 0) {
+        if (chown(kHelperDirectory, 0, 0) != 0) {
+            error = "cannot set privileged helper directory ownership: " +
+                    std::string(std::strerror(errno));
+            return false;
+        }
+        if (chmod(kHelperDirectory, 0755) != 0) {
+            error = "cannot set privileged helper directory permissions: " +
+                    std::string(std::strerror(errno));
+            return false;
+        }
+        return true;
+    }
+    if (errno != EEXIST) {
+        error = "cannot create the privileged helper directory: " +
+                std::string(std::strerror(errno));
+        return false;
+    }
+
+    struct stat metadata {};
+    if (lstat(kHelperDirectory, &metadata) != 0) {
+        error = "cannot inspect the privileged helper directory: " +
+                std::string(std::strerror(errno));
+        return false;
+    }
+    if (!S_ISDIR(metadata.st_mode)) {
+        error = "the privileged helper directory path is not a directory";
+        return false;
+    }
+    return true;
+}
+
 std::string plistContents() {
     return std::string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n") +
            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
@@ -156,6 +190,9 @@ bool installLaunchDaemon(std::string& error) {
     }
     const std::string source = executablePath(error);
     if (source.empty()) {
+        return false;
+    }
+    if (!ensureHelperDirectory(error)) {
         return false;
     }
 
