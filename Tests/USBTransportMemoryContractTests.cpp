@@ -32,7 +32,8 @@ int main(int argc, char* argv[]) {
     assert(!source.empty());
 
     assert(source.find("__strong NSMutableData* bulkInData") != std::string::npos);
-    assert(source.find("__strong NSMutableData* bulkOutData") != std::string::npos);
+    assert(source.find("static constexpr size_t kBulkOutQueueDepth = 8") != std::string::npos);
+    assert(source.find("__strong NSMutableData* bulkOutData[kBulkOutQueueDepth]") != std::string::npos);
     assert(source.find("std::vector<uint8_t> bulkOutPacket") != std::string::npos);
 
     const std::string readBody = functionBody(source,
@@ -48,6 +49,9 @@ int main(int argc, char* argv[]) {
     assert(writeBody.find("@autoreleasepool") != std::string::npos);
     assert(writeBody.find("impl_->bulkOutData") != std::string::npos);
     assert(writeBody.find("impl_->bulkOutPacket") != std::string::npos);
+    assert(writeBody.find("enqueueIORequestWithData:") != std::string::npos);
+    assert(writeBody.find("bulkOutCondition.wait") != std::string::npos);
+    assert(writeBody.find("sendIORequestWithData:") == std::string::npos);
     assert(writeBody.find("dataWithBytes:") == std::string::npos);
 
     std::cout << "USB transport memory contract passed\n";
