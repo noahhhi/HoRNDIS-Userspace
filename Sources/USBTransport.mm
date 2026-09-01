@@ -11,7 +11,10 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <condition_variable>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <thread>
 
@@ -161,13 +164,21 @@ bool isTimeout(NSError* error) {
 } // namespace
 
 struct RNDISUSBTransport::Impl {
+    static constexpr size_t kBulkOutQueueDepth = 8;
+
     __strong IOUSBHostInterface* control = nil;
     __strong IOUSBHostInterface* data = nil;
     __strong IOUSBHostPipe* bulkIn = nil;
     __strong IOUSBHostPipe* bulkOut = nil;
     __strong NSMutableData* bulkInData = nil;
-    __strong NSMutableData* bulkOutData = nil;
+    __strong NSMutableData* bulkOutData[kBulkOutQueueDepth] = {};
+    bool bulkOutBusy[kBulkOutQueueDepth] = {};
     std::vector<uint8_t> bulkOutPacket;
+    std::mutex bulkOutMutex;
+    std::condition_variable bulkOutCondition;
+    size_t bulkOutInFlight = 0;
+    size_t nextBulkOutSlot = 0;
+    std::string bulkOutError;
     USBDeviceInfo device;
 };
 
@@ -475,25 +486,69 @@ bool RNDISUSBTransport::writeEthernetFrame(const std::vector<uint8_t>& frame, st
             error = "Ethernet frame is too large for an RNDIS packet";
             return false;
         }
-        if (impl_->bulkOutData == nil) {
-            impl_->bulkOutData = [[NSMutableData alloc] initWithCapacity:2048];
+
+        size_t slot = 0;
+        {
+            std::unique_lock lock(impl_->bulkOutMutex);
+            impl_->bulkOutCondition.wait(lock, [&] {
+                return !impl_->bulkOutError.empty() ||
+                       impl_->bulkOutInFlight < Impl::kBulkOutQueueDepth;
+            });
+            if (!impl_->bulkOutError.empty()) {
+                error = impl_->bulkOutError;
+                return false;
+            }
+            for (size_t offset = 0; offset < Impl::kBulkOutQueueDepth; ++offset) {
+                const size_t candidate = (impl_->nextBulkOutSlot + offset) %
+                                         Impl::kBulkOutQueueDepth;
+                if (!impl_->bulkOutBusy[candidate]) {
+                    slot = candidate;
+                    break;
+                }
+            }
+            impl_->bulkOutBusy[slot] = true;
+            ++impl_->bulkOutInFlight;
+            impl_->nextBulkOutSlot = (slot + 1) % Impl::kBulkOutQueueDepth;
         }
-        impl_->bulkOutData.length = impl_->bulkOutPacket.size();
+
+        if (impl_->bulkOutData[slot] == nil) {
+            impl_->bulkOutData[slot] = [[NSMutableData alloc] initWithCapacity:2048];
+        }
+        impl_->bulkOutData[slot].length = impl_->bulkOutPacket.size();
         std::copy(impl_->bulkOutPacket.begin(),
                   impl_->bulkOutPacket.end(),
-                  static_cast<uint8_t*>(impl_->bulkOutData.mutableBytes));
+                  static_cast<uint8_t*>(impl_->bulkOutData[slot].mutableBytes));
 
-        NSUInteger transferred = 0;
+        const size_t expectedBytes = impl_->bulkOutPacket.size();
+        Impl* const state = impl_.get();
         NSError* nsError = nil;
-        if (![impl_->bulkOut sendIORequestWithData:impl_->bulkOutData
-                                  bytesTransferred:&transferred
-                                 completionTimeout:5.0
-                                             error:&nsError]) {
+        if (![impl_->bulkOut enqueueIORequestWithData:impl_->bulkOutData[slot]
+                                    completionTimeout:5.0
+                                                error:&nsError
+                                    completionHandler:^(IOReturn status, NSUInteger transferred) {
+            @autoreleasepool {
+                std::lock_guard lock(state->bulkOutMutex);
+                if (status != kIOReturnSuccess && state->bulkOutError.empty()) {
+                    std::ostringstream description;
+                    description << "RNDIS bulk write failed asynchronously (status 0x"
+                                << std::hex << static_cast<uint32_t>(status) << ')';
+                    state->bulkOutError = description.str();
+                } else if (status == kIOReturnSuccess && transferred != expectedBytes &&
+                           state->bulkOutError.empty()) {
+                    state->bulkOutError = "RNDIS bulk write was only partially transferred";
+                }
+                state->bulkOutBusy[slot] = false;
+                --state->bulkOutInFlight;
+                state->bulkOutCondition.notify_all();
+            }
+        }]) {
+            {
+                std::lock_guard lock(impl_->bulkOutMutex);
+                impl_->bulkOutBusy[slot] = false;
+                --impl_->bulkOutInFlight;
+                impl_->bulkOutCondition.notify_all();
+            }
             error = "RNDIS bulk write failed: " + nsErrorDescription(nsError);
-            return false;
-        }
-        if (transferred != impl_->bulkOutPacket.size()) {
-            error = "RNDIS bulk write was only partially transferred";
             return false;
         }
         return true;
@@ -505,10 +560,30 @@ void RNDISUSBTransport::close() {
     if (!impl_) {
         return;
     }
+    {
+        std::unique_lock lock(impl_->bulkOutMutex);
+        const bool drained = impl_->bulkOutCondition.wait_for(lock, std::chrono::seconds(6), [&] {
+            return impl_->bulkOutInFlight == 0;
+        });
+        lock.unlock();
+        if (!drained && impl_->bulkOut != nil) {
+            [impl_->bulkOut abortWithError:nil];
+            lock.lock();
+            impl_->bulkOutCondition.wait(lock, [&] {
+                return impl_->bulkOutInFlight == 0;
+            });
+        }
+    }
     impl_->bulkIn = nil;
     impl_->bulkOut = nil;
     impl_->bulkInData = nil;
-    impl_->bulkOutData = nil;
+    for (size_t slot = 0; slot < Impl::kBulkOutQueueDepth; ++slot) {
+        impl_->bulkOutData[slot] = nil;
+        impl_->bulkOutBusy[slot] = false;
+    }
+    impl_->bulkOutInFlight = 0;
+    impl_->nextBulkOutSlot = 0;
+    impl_->bulkOutError.clear();
     impl_->bulkOutPacket.clear();
     impl_->bulkOutPacket.shrink_to_fit();
     if (impl_->data != nil) {
