@@ -10,14 +10,15 @@
 
 namespace {
 
-void testResponse(bool supervisorSuccess) {
+void testResponse(bool supervisorSuccess, bool suspend = false) {
     int descriptors[2]{-1, -1};
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) == 0);
 
     bool agentResult = false;
     std::string agentError;
     std::thread agent([&] {
-        agentResult = horndis::requestDHCPRefresh(descriptors[1], agentError);
+        agentResult = suspend ? horndis::requestNetworkSuspend(descriptors[1], agentError)
+                              : horndis::requestDHCPRefresh(descriptors[1], agentError);
         close(descriptors[1]);
     });
 
@@ -27,7 +28,8 @@ void testResponse(bool supervisorSuccess) {
     assert(horndis::receiveSupervisorRequest(
         descriptors[0], request, closed, supervisorError));
     assert(!closed);
-    assert(request == horndis::SupervisorRequest::refreshDHCP);
+    assert(request == (suspend ? horndis::SupervisorRequest::suspendNetwork
+                               : horndis::SupervisorRequest::refreshDHCP));
     assert(horndis::sendSupervisorResponse(
         descriptors[0], supervisorSuccess, supervisorError));
     close(descriptors[0]);
@@ -46,6 +48,8 @@ void testResponse(bool supervisorSuccess) {
 int main() {
     testResponse(true);
     testResponse(false);
+    testResponse(true, true);
+    testResponse(false, true);
 
     int descriptors[2]{-1, -1};
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) == 0);

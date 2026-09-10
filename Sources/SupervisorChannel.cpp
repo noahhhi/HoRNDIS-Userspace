@@ -44,12 +44,12 @@ bool readByte(int descriptor, uint8_t& value, bool& closed, std::string& error) 
 
 } // namespace
 
-bool requestDHCPRefresh(int descriptor, std::string& error) {
+static bool requestOperation(int descriptor, SupervisorRequest operation, std::string& error) {
     if (descriptor < 0) {
         error = "the root supervisor DHCP channel is unavailable";
         return false;
     }
-    if (!writeByte(descriptor, static_cast<uint8_t>(SupervisorRequest::refreshDHCP), error)) {
+    if (!writeByte(descriptor, static_cast<uint8_t>(operation), error)) {
         return false;
     }
     uint8_t response = 0;
@@ -72,6 +72,13 @@ bool requestDHCPRefresh(int descriptor, std::string& error) {
     return false;
 }
 
+bool requestDHCPRefresh(int descriptor, std::string& error) {
+    return requestOperation(descriptor, SupervisorRequest::refreshDHCP, error);
+}
+bool requestNetworkSuspend(int descriptor, std::string& error) {
+    return requestOperation(descriptor, SupervisorRequest::suspendNetwork, error);
+}
+
 bool receiveSupervisorRequest(int descriptor,
                               SupervisorRequest& request,
                               bool& closed,
@@ -80,11 +87,12 @@ bool receiveSupervisorRequest(int descriptor,
     if (!readByte(descriptor, value, closed, error) || closed) {
         return error.empty();
     }
-    if (value != static_cast<uint8_t>(SupervisorRequest::refreshDHCP)) {
+    if (value != static_cast<uint8_t>(SupervisorRequest::refreshDHCP) &&
+        value != static_cast<uint8_t>(SupervisorRequest::suspendNetwork)) {
         error = "the data agent sent an invalid supervisor request";
         return false;
     }
-    request = SupervisorRequest::refreshDHCP;
+    request = static_cast<SupervisorRequest>(value);
     return true;
 }
 

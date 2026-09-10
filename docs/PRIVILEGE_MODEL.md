@@ -13,7 +13,8 @@ Changing BPF device permissions, adding a broad passwordless sudo rule, or insta
 ```text
 root LaunchDaemon supervisor
   ├─ select and exclusively create an unused feth pair
-  ├─ start system DHCP on the selected macOS-facing feth
+  ├─ register an owned Network Service/bridge (direct feth fallback)
+  ├─ start system DHCP on the selected macOS-facing interface
   ├─ open and bind one BPF descriptor
   └─ fork + exec, pass that descriptor and a fixed DHCP-refresh channel
                     │
@@ -51,6 +52,17 @@ The runtime directory is assigned to the current console user after privileged s
 The Homebrew command-line path's password is handled by `sudo`, while the package path uses macOS Installer authorization. The menu app provides a third entry point: it verifies that the helper and LaunchDaemon plist are root-owned, non-writable by ordinary users, and structurally valid; when they are not, **Authorize and Install…** asks the macOS Security Agent to run only the fixed bundled `horndis service install` command. HoRNDIS never reads or stores a credential in any path. The LaunchDaemon supplies persistence, so storing credentials in a script, Skill, Keychain lookup, environment variable, or sudoers exception is unnecessary. The menu LaunchAgent runs as the console user and needs no additional authorization.
 
 ## Remaining risk
+
+The owned **HoRNDIS USB** Network Service uses a registered bridge with a
+feth member registered in both runtime and system bridge preferences. The member
+is removed from both on pause/close and restored on connection, so System Settings
+can determine the real bridge status. Bridge registration uses dynamically resolved private
+SystemConfiguration APIs, with direct feth fallback if unavailable or unsafe.
+The preferences session is locked and uses the default system domain. Bridge
+options record ownership and the service ID; existing members prevent reuse or
+removal. The supervisor never attaches physical network interfaces. A second
+fixed, argument-free request clears DHCP and lowers the owned feth pair after
+disconnect/pause; channel closure also suspends the network after an agent crash.
 
 The supervisor is still a root process and the feth/BPF backend depends on macOS behavior that Apple does not promise as a stable public ABI. Its input surface is deliberately small and fixed, but it is not equivalent to a formally sandboxed or Apple-entitled DriverKit component.
 

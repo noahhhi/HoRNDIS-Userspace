@@ -79,7 +79,9 @@ Spotlight, or run `horndis start`. Use `horndis stop` to hide it without
 disabling login startup, and `horndis restart` after troubleshooting. Run
 `horndis help` or `man horndis` for the complete command reference.
 
-The Network settings panel does not list the selected `feth<number>` interface. It is dynamically cloned and published in the live SystemConfiguration state rather than as a persistent Network Service. HoRNDIS prefers `feth99`/`feth98`, automatically skips the entire pair when either name already exists, and never adopts or removes another application's interface. `scutil --nwi`, `horndis status`, and the menu bar app show the effective connection.
+The Network settings panel lists **HoRNDIS USB**, backed by the actual `bridge<number>` interface carrying DHCP and USB traffic. Menu Details and `horndis status` show that same interface. Pause/disconnect clears its address; reconnect restarts DHCP. The service remains listed while disconnected, is reused on restart, and is removed on uninstall.
+
+Registration uses private macOS bridge configuration APIs resolved at runtime. If unavailable or unsafe to apply, HoRNDIS logs the reason and falls back to the direct feth path, which is not listed in Network settings. This feature still requires testing on each supported macOS version. The bridge only receives a newly created feth member, never Wi-Fi, Thunderbolt, or a physical adapter. Existing bridge members prevent reuse or removal. Use the HoRNDIS menu to pause/resume; Network settings cannot switch Android tethering on.
 
 ## Stuck at Configuring DHCP
 

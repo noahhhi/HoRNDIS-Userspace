@@ -644,6 +644,10 @@ int runAgent(int bpfDescriptor,
 
             sessionRunning.store(false);
             outbound.join();
+            std::string suspendError;
+            if (!horndis::requestNetworkSuspend(supervisorDescriptor, suspendError)) {
+                logLine(suspendError);
+            }
             {
                 std::lock_guard lock(outboundErrorMutex);
                 if (!outboundError.empty()) {
@@ -828,6 +832,10 @@ void superviseAgentDHCP(int descriptor, horndis::VirtualEthernet& ethernet) {
 
         bool success = false;
         switch (request) {
+            case horndis::SupervisorRequest::suspendNetwork:
+                success = ethernet.suspendNetwork(error);
+                if (!success) logLine("cannot suspend network: " + error);
+                break;
             case horndis::SupervisorRequest::refreshDHCP:
                 success = ethernet.refreshDHCP(error);
                 if (success) {
@@ -937,6 +945,8 @@ int runBridge() {
                 std::to_string(agent) + ")");
 
         superviseAgentDHCP(supervisorDescriptor, ethernet);
+        std::string suspendError;
+        if (!ethernet.suspendNetwork(suspendError)) logLine(suspendError);
         (void)close(supervisorDescriptor);
 
         int childStatus = 0;

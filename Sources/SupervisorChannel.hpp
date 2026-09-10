@@ -8,9 +8,11 @@ namespace horndis {
 
 enum class SupervisorRequest : uint8_t {
     refreshDHCP = 1,
+    suspendNetwork = 2,
 };
 
 bool requestDHCPRefresh(int descriptor, std::string& error);
+bool requestNetworkSuspend(int descriptor, std::string& error);
 bool receiveSupervisorRequest(int descriptor,
                               SupervisorRequest& request,
                               bool& closed,

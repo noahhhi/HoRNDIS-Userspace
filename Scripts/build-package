@@ -10,7 +10,7 @@ fi
 version=$1
 output_path=$2
 repository_root=${0:a:h:h}
-build_directory="${repository_root}/build"
+build_directory="${BUILD_DIR:-${repository_root}/build}"
 network_tool="${build_directory}/horndis"
 status_app="${build_directory}/HoRNDISStatus.app"
 icon_file="${status_app}/Contents/Resources/HoRNDISStatus.icns"

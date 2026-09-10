@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "VirtualEthernet.hpp"
+#include "NetworkService.hpp"
 
 #include <cerrno>
 #include <cstring>
@@ -19,6 +20,8 @@
 #include <iostream>
 #include <set>
 #include <sstream>
+#include <chrono>
+#include <thread>
 
 extern char** environ;
 
@@ -69,154 +72,6 @@ bool configureInterface(const std::string& interface,
     std::vector<std::string> command{interface};
     command.insert(command.end(), arguments.begin(), arguments.end());
     return runCommand("/sbin/ifconfig", command, false, error);
-}
-
-std::string systemConfigurationError() {
-    const char* description = SCErrorString(SCError());
-    return description != nullptr ? description : "unknown SystemConfiguration error";
-}
-
-bool configurePersistentDHCP(const std::string& interfaceName, std::string& error) {
-    SCPreferencesRef preferences = SCPreferencesCreate(
-        kCFAllocatorDefault, CFSTR("HoRNDIS Userspace"), CFSTR("io.github.noahhhi.horndis"));
-    if (preferences == nullptr) {
-        error = "cannot open network preferences: " + systemConfigurationError();
-        return false;
-    }
-    if (!SCPreferencesLock(preferences, true)) {
-        error = "cannot lock network preferences: " + systemConfigurationError();
-        CFRelease(preferences);
-        return false;
-    }
-
-    bool success = false;
-    SCNetworkServiceRef service = nullptr;
-    CFArrayRef services = SCNetworkServiceCopyAll(preferences);
-    if (services != nullptr) {
-        const CFIndex count = CFArrayGetCount(services);
-        for (CFIndex index = 0; index < count; ++index) {
-            const auto candidate = static_cast<SCNetworkServiceRef>(
-                const_cast<void*>(CFArrayGetValueAtIndex(services, index)));
-            SCNetworkInterfaceRef candidateInterface = SCNetworkServiceGetInterface(candidate);
-            CFStringRef bsdName = candidateInterface != nullptr
-                                      ? SCNetworkInterfaceGetBSDName(candidateInterface)
-                                      : nullptr;
-            if (bsdName != nullptr) {
-                char buffer[IFNAMSIZ]{};
-                if (CFStringGetCString(bsdName, buffer, sizeof(buffer), kCFStringEncodingUTF8) &&
-                    interfaceName == buffer) {
-                    service = candidate;
-                    CFRetain(service);
-                    break;
-                }
-            }
-        }
-        CFRelease(services);
-    }
-
-    bool created = false;
-    if (service == nullptr) {
-        SCNetworkInterfaceRef selectedInterface = nullptr;
-        CFArrayRef interfaces = SCNetworkInterfaceCopyAll();
-        if (interfaces != nullptr) {
-            const CFIndex count = CFArrayGetCount(interfaces);
-            for (CFIndex index = 0; index < count; ++index) {
-                const auto candidate = static_cast<SCNetworkInterfaceRef>(
-                    const_cast<void*>(CFArrayGetValueAtIndex(interfaces, index)));
-                CFStringRef bsdName = SCNetworkInterfaceGetBSDName(candidate);
-                char buffer[IFNAMSIZ]{};
-                if (bsdName != nullptr &&
-                    CFStringGetCString(bsdName, buffer, sizeof(buffer), kCFStringEncodingUTF8) &&
-                    interfaceName == buffer) {
-                    selectedInterface = candidate;
-                    break;
-                }
-            }
-            if (selectedInterface != nullptr) {
-                service = SCNetworkServiceCreate(preferences, selectedInterface);
-            }
-            CFRelease(interfaces);
-        }
-        if (service == nullptr) {
-            error = "cannot create a network service for " + interfaceName + ": " +
-                    systemConfigurationError();
-            goto cleanup;
-        }
-        created = true;
-        if (!SCNetworkServiceEstablishDefaultConfiguration(service)) {
-            error = "cannot initialize the network service: " + systemConfigurationError();
-            goto cleanup;
-        }
-        const std::string displayName = "HoRNDIS USB (" + interfaceName + ")";
-        CFStringRef name = CFStringCreateWithCString(
-            kCFAllocatorDefault, displayName.c_str(), kCFStringEncodingUTF8);
-        if (name != nullptr) {
-            (void)SCNetworkServiceSetName(service, name);
-            CFRelease(name);
-        }
-        SCNetworkSetRef currentSet = SCNetworkSetCopyCurrent(preferences);
-        if (currentSet == nullptr || !SCNetworkSetAddService(currentSet, service)) {
-            error = "cannot add the HoRNDIS service to the current network set: " +
-                    systemConfigurationError();
-            if (currentSet != nullptr) {
-                CFRelease(currentSet);
-            }
-            goto cleanup;
-        }
-        CFRelease(currentSet);
-    }
-
-    {
-        SCNetworkProtocolRef ipv4 = SCNetworkServiceCopyProtocol(service, kSCNetworkProtocolTypeIPv4);
-        if (ipv4 == nullptr) {
-            if (!SCNetworkServiceAddProtocolType(service, kSCNetworkProtocolTypeIPv4)) {
-                error = "cannot add IPv4 to the HoRNDIS network service: " +
-                        systemConfigurationError();
-                goto cleanup;
-            }
-            ipv4 = SCNetworkServiceCopyProtocol(service, kSCNetworkProtocolTypeIPv4);
-        }
-        if (ipv4 == nullptr) {
-            error = "cannot access the HoRNDIS IPv4 configuration";
-            goto cleanup;
-        }
-        const void* keys[] = {kSCPropNetIPv4ConfigMethod};
-        const void* values[] = {kSCValNetIPv4ConfigMethodDHCP};
-        CFDictionaryRef configuration = CFDictionaryCreate(kCFAllocatorDefault,
-                                                            keys,
-                                                            values,
-                                                            1,
-                                                            &kCFTypeDictionaryKeyCallBacks,
-                                                            &kCFTypeDictionaryValueCallBacks);
-        const bool configured = configuration != nullptr &&
-                                SCNetworkProtocolSetConfiguration(ipv4, configuration);
-        if (configuration != nullptr) {
-            CFRelease(configuration);
-        }
-        CFRelease(ipv4);
-        if (!configured || !SCNetworkServiceSetEnabled(service, true)) {
-            error = "cannot enable DHCP for the HoRNDIS network service: " +
-                    systemConfigurationError();
-            goto cleanup;
-        }
-    }
-
-    if (!SCPreferencesCommitChanges(preferences) || !SCPreferencesApplyChanges(preferences)) {
-        error = "cannot save the HoRNDIS network service: " + systemConfigurationError();
-        goto cleanup;
-    }
-    success = true;
-
-cleanup:
-    if (!success && created && service != nullptr) {
-        (void)SCNetworkServiceRemove(service);
-    }
-    if (service != nullptr) {
-        CFRelease(service);
-    }
-    SCPreferencesUnlock(preferences);
-    CFRelease(preferences);
-    return success;
 }
 
 bool isSafeFethName(const std::string& name) {
@@ -358,11 +213,23 @@ bool VirtualEthernet::open(const std::string& hostInterface,
     readOffset_ = readBuffer_.size();
     bpfBufferSize_ = actualBufferSize;
     std::string persistentError;
-    if (!configurePersistentDHCP(hostInterface_, persistentError)) {
+    std::string bridge;
+    if (ensureNetworkService(bridge, persistentError)) {
+        // configd materializes the registered bridge asynchronously.
+        for (int retry = 0; retry < 40 && !if_nametoindex(bridge.c_str()); ++retry) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (configureInterface(bridge, {"addm", hostInterface_}, persistentError)) {
+            memberInterface_ = hostInterface_;
+            memberAttached_ = true;
+            hostInterface_ = bridge;
+        }
+    }
+    if (memberInterface_.empty()) {
         std::cerr << "horndis: SystemConfiguration could not register " << hostInterface_
                   << " (" << persistentError << "); using the macOS DHCP compatibility path\n";
     }
-    if (!refreshDHCP(error)) {
+    if (!suspendNetwork(error)) {
         close();
         return false;
     }
@@ -374,7 +241,7 @@ bool VirtualEthernet::adoptDescriptor(int descriptor,
                                       const std::string& transportInterface,
                                       std::string& error) {
     close();
-    if (descriptor < 0 || !isSafeFethName(hostInterface) ||
+    if (descriptor < 0 || (!isSafeFethName(hostInterface) && !isBridgeName(hostInterface)) ||
         !isSafeFethName(transportInterface) || hostInterface == transportInterface) {
         error = "cannot adopt an invalid Ethernet bridge descriptor";
         return false;
@@ -422,12 +289,44 @@ bool VirtualEthernet::refreshDHCP(std::string& error) {
         error = "the Ethernet bridge is not open";
         return false;
     }
+    if (!memberInterface_.empty() && !memberAttached_) {
+        if (!setNetworkServiceMember(hostInterface_, memberInterface_, true, error)) return false;
+        if (!configureInterface(hostInterface_, {"addm", memberInterface_}, error)) return false;
+        memberAttached_ = true;
+    }
+    if (!memberInterface_.empty() &&
+        !configureInterface(memberInterface_, {"mtu", "1500", "up"}, error)) return false;
     if (!configureInterface(hostInterface_, {"mtu", "1500", "up"}, error) ||
-        !configureInterface(transportInterface_, {"mtu", "1500", "up"}, error) ||
-        !runCommand("/usr/sbin/ipconfig", {"set", hostInterface_, "DHCP"}, false, error)) {
+        !configureInterface(transportInterface_, {"mtu", "1500", "up"}, error)) {
         return false;
     }
-    return true;
+    // ipconfig set creates a temporary DHCP-bridgeN service, hiding the lease
+    // from the registered service's UUID and hence from Network Settings.
+    if (!memberInterface_.empty()) return refreshNetworkService(hostInterface_, error);
+    return runCommand("/usr/sbin/ipconfig", {"set", hostInterface_, "DHCP"}, false, error);
+}
+
+bool VirtualEthernet::suspendNetwork(std::string& error) {
+    if (geteuid() != 0 || hostInterface_.empty() || transportInterface_.empty()) {
+        error = "network suspension requires an open root-owned Ethernet pair";
+        return false;
+    }
+    // Drop carrier as well as the lease so Network Settings does not report a
+    // paused/unplugged phone as connected until the DHCP lease expires.
+    bool stopped = !memberInterface_.empty() ||
+        runCommand("/usr/sbin/ipconfig", {"set", hostInterface_, "NONE"}, false, error);
+    if (memberAttached_) {
+        stopped = configureInterface(hostInterface_, {"deletem", memberInterface_}, error);
+        if (stopped) memberAttached_ = false;
+    }
+    if (!memberInterface_.empty() && !memberAttached_) {
+        stopped = setNetworkServiceMember(hostInterface_, memberInterface_, false, error) && stopped;
+    }
+    bool lowered = configureInterface(transportInterface_, {"down"}, error);
+    if (!memberInterface_.empty()) {
+        lowered = configureInterface(memberInterface_, {"down"}, error) && lowered;
+    }
+    return stopped && lowered;
 }
 
 bool VirtualEthernet::readFrame(std::vector<uint8_t>& frame, bool& timedOut, std::string& error) {
@@ -520,9 +419,14 @@ void VirtualEthernet::close() {
     if (ownsInterfaces_ && geteuid() == 0) {
         std::string ignored;
         if (!hostInterface_.empty()) {
-            (void)runCommand(
-                "/usr/sbin/ipconfig", {"set", hostInterface_, "NONE"}, true, ignored);
-            (void)runCommand("/sbin/ifconfig", {hostInterface_, "destroy"}, true, ignored);
+            if (!memberInterface_.empty()) {
+                if (memberAttached_) (void)configureInterface(hostInterface_, {"deletem", memberInterface_}, ignored);
+                (void)setNetworkServiceMember(hostInterface_, memberInterface_, false, ignored);
+                (void)runCommand("/sbin/ifconfig", {memberInterface_, "destroy"}, true, ignored);
+            } else {
+                (void)runCommand("/usr/sbin/ipconfig", {"set", hostInterface_, "NONE"}, true, ignored);
+                (void)runCommand("/sbin/ifconfig", {hostInterface_, "destroy"}, true, ignored);
+            }
         }
         if (!transportInterface_.empty()) {
             (void)runCommand(
@@ -531,6 +435,8 @@ void VirtualEthernet::close() {
     }
     ownsInterfaces_ = false;
     hostInterface_.clear();
+    memberInterface_.clear();
+    memberAttached_ = false;
     transportInterface_.clear();
 }
 

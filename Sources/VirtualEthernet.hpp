@@ -25,6 +25,7 @@ public:
                          const std::string& transportInterface,
                          std::string& error);
     bool refreshDHCP(std::string& error);
+    bool suspendNetwork(std::string& error);
     bool flush(std::string& error);
     bool readFrame(std::vector<uint8_t>& frame, bool& timedOut, std::string& error);
     bool writeFrame(const std::vector<uint8_t>& frame, std::string& error);
@@ -37,6 +38,8 @@ public:
 private:
     int bpf_ = -1;
     std::string hostInterface_;
+    std::string memberInterface_;
+    bool memberAttached_ = false;
     std::string transportInterface_;
     std::vector<uint8_t> readBuffer_;
     size_t readOffset_ = 0;

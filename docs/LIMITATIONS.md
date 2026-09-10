@@ -14,7 +14,7 @@
 
 ## macOS networking
 
-- The selected `feth<number>` interface is dynamic and does not appear in the macOS Network settings panel. It remains visible to `ifconfig`, `scutil --nwi`, DHCP, and the menu bar app. HoRNDIS prefers `feth99`/`feth98` but automatically chooses another unused pair when either name is already occupied.
+- **HoRNDIS USB** in Network settings represents the actual DHCP/traffic bridge. Registration uses private bridge configuration APIs resolved at runtime; compatibility is not guaranteed across OS updates. If unavailable or unsafe, the direct feth fallback still works but is not listed in Network settings. Existing occupied bridges are left untouched. Only the owned service/bridge is removed at uninstall; an ownership conflict must be resolved before removal.
 - A minimal root supervisor remains resident because BPF access and system DHCP/interface configuration are privileged. It does not process USB or RNDIS data; the inherited-BPF data agent runs as the current console user and can only request the fixed per-session DHCP refresh over a private channel.
 - The feth/BPF backend is not a promised long-term Apple ABI. The code keeps this backend isolated so a future utun or other public backend can replace it.
 - VPN route priority, fake-IP DNS, endpoint security products, and other network extensions can change which path a normal application uses. Interface-bound tests are required to prove the USB path independently. A global TUN VPN can also intercept traffic explicitly bound to the feth interface before it reaches the bridge; exclude the tether subnet in the VPN client if the Mac must reach phone-side addresses directly.

@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.9
+VERSION ?= 0.3.10
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -18,7 +18,7 @@ CODESIGN := codesign
 SOURCES := Sources/main.mm Sources/RNDISProtocol.cpp Sources/USBTransport.mm \
 	Sources/VirtualEthernet.cpp Sources/ServiceManager.cpp Sources/RuntimeStatus.cpp \
 	Sources/ControlServer.cpp Sources/Diagnostics.mm Sources/SupervisorChannel.cpp \
-	Sources/InterfaceSelection.cpp
+	Sources/InterfaceSelection.cpp Sources/NetworkService.cpp
 OBJECTS := $(SOURCES:%=$(BUILD_DIR)/%.o)
 TARGET := $(BUILD_DIR)/horndis
 STATUS_TARGET := $(BUILD_DIR)/horndis-status
@@ -62,6 +62,10 @@ $(TARGET): $(OBJECTS)
 $(BUILD_DIR)/%.o: %
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# All service objects share these small interfaces. Header changes must rebuild
+# callers too (notably VirtualEthernet's root/agent object layout).
+$(OBJECTS): $(wildcard Sources/*.hpp)
 
 $(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift
 	@mkdir -p "$(@D)"
@@ -177,6 +181,15 @@ test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RE
 	cmp -s "$(TARGET)" "$(STATUS_APP_NETWORK_TOOL)"
 	$(CODESIGN) --verify --strict --verbose=2 "$(TARGET)"
 	$(CODESIGN) --verify --deep --strict --verbose=2 "$(STATUS_APP)"
+
+$(BUILD_DIR)/network-service-tests: Tests/NetworkServiceTests.cpp Sources/NetworkService.cpp Sources/VirtualEthernet.cpp Sources/InterfaceSelection.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
+test: test-network-service
+
+test-network-service: $(BUILD_DIR)/network-service-tests
+	$(BUILD_DIR)/network-service-tests
 
 test-ui: $(MENU_UI_CONTRACT_TEST)
 	$(MENU_UI_CONTRACT_TEST) StatusApp/HoRNDISStatus.swift

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ServiceManager.hpp"
+#include "NetworkService.hpp"
 #include "RuntimeStatus.hpp"
 
 #include <copyfile.h>
@@ -252,6 +253,14 @@ bool uninstallLaunchDaemon(std::string& error) {
     }
     std::string ignored;
     (void)runLaunchctl({"bootout", std::string("system/") + kLabel}, true, ignored, true);
+    // bootout returns before the supervisor has necessarily detached its
+    // runtime member. Allow bounded graceful cleanup, never force-delete it.
+    bool removed = false;
+    for (int attempt = 0; attempt < 40; ++attempt) {
+        if (removeNetworkService(error)) { removed = true; break; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    if (!removed) return false;
     if (unlink(kPlist) != 0 && errno != ENOENT) {
         error = "cannot remove the launch daemon configuration: " +
                 std::string(std::strerror(errno));
